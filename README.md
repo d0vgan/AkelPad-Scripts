@@ -6,12 +6,12 @@ Collection of scripts for AkelPad text editor
 **CommandPalette.js** - Shows a list of AkelPad's and plugin's commands. Requires CommandPalette*.lng file.  
 **CommandPalette.lng** - The list of AkelPad's and plugin's commands for CommandPalette.js, English version.  
 **CommandPalette_1049.lng** - The list of AkelPad's and plugin's commands for CommandPalette.js, Russian version.  
-**ConvertPathSlashes.js** - Converts '\' to '/' (or vice versa) in a selected file path.  
+**ConvertPathSlashes.js** - Converts '\\' to '/' (or vice versa) in a selected file path.  
 **GoToAnything.js** - Switches to file / goes to line / finds text. Supports Favourites and Recent Files History.  
 **GoToAnything.fav** - Example of Favourites file for GoToAnything.js.  
 **KeySubst.js** - Replaces Latin characters with Cyrillic ones while typing.  
 **ProcessSelectedText.js** - Example of processing (modification) of the selected text.  
-**QSearchAutoFocus.js** - Example of a resident script. (The QSearch plugin has its own option "Window: QSearch auto-focus (on file open)", so it does not need this script).  
+**QSearchAutoFocus.js** - Example of a resident script. [The QSearch plugin has its own option "Window: QSearch auto-focus (on file open)", so it does not need this script].  
 **RunMe.js** - Executes the current file in predefined external program.  
 **RunMe_Usage_Rus.txt** - Manual for the RunMe.js, in Russian.  
 **UpdateAkelUpdater.js** - Updates the AkelUpdater.exe.  
