@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.4.2
+// Version: 0.4.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -140,7 +140,7 @@ var LBS_NOTIFY      = 0x0001;
 var LBS_SORT        = 0x0002;
 var LBS_USETABSTOPS = 0x0080;
 
-//AkelPad Constants
+//AkelPad Constants: AkelPad.MemRead
 var DT_ANSI = 0;
 var DT_UNICODE = 1;
 var DT_QWORD = 2;
@@ -148,6 +148,7 @@ var DT_DWORD = 3;
 var DT_WORD = 4;
 var DT_BYTE = 5;
 
+//AkelPad Constants: AKD_FRAMEFIND
 var FWF_CURRENT = 1; //Retrieve current frame data pointer. lParam not used.
 var FWF_NEXT = 2; //Retrieve next frame data pointer in frame stack. lParam is a frame data pointer.
 var FWF_PREV = 3; //Retrieve previous frame data pointer in frame stack. lParam is a frame data pointer.
@@ -156,11 +157,14 @@ var FWF_BYTABINDEX = 8; //Retrieve frame data by tab item zero based index. lPar
 var FWF_TABNEXT = 9; //Retrieve next tab item frame data. lParam is a frame data pointer.
 var FWF_TABPREV = 10; //Retrieve previous tab item frame data. lParam is a frame data pointer.
 
+//AkelPad Constants: AKD_GETFRAMEINFO
 var FI_WNDEDIT = 2;
 var FI_FILEW = 32;
 
+//AkelPad Constants: AKD_GOTO
 var GT_LINE = 0x1;
 
+//AkelPad Constants: AkelPad.TextFind
 var FRF_DOWN = 0x00000001; //Search down
 var FRF_REGEXPNONEWLINEDOT = 0x00040000; //'.' doe not match '\n'
 var FRF_REGEXP = 0x00080000; //Use RegExp
@@ -168,13 +172,21 @@ var FRF_UP = 0x00100000; //Search up
 var FRF_BEGINNING = 0x00200000; //Search from the beginning
 var FRF_CYCLESEARCH = 0x08000000; //Cycle search
 
+//AkelPad Constants: AkelPad.WindowSubClass
 var WSC_MAINPROC = 1;
 
+//AkelPad Constants: AkelPad.ScriptSettings
 var POB_READ = 0x1;
 var POB_SAVE = 0x2;
 var PO_STRING = 3;
 
+//AkelPad Constants: AKD_RECENTFILES
 var RF_GET = 1; //Retrieve current recent files info
+
+//AkelPad Constants: AkelPad.IsMDI
+var WMD_SDI = 0; // Single-window (SDI)
+var WMD_MDI = 1; // Multi-window (MDI)
+var WMD_PMDI = 2; //  Pseudo Multi-window (PMDI)
 
 //AkelPad Messages
 var AKD_GOTOW  = (WM_USER + 182);
@@ -189,7 +201,7 @@ var AKD_FRAMEINDEX = (WM_USER + 270);
 var AKDN_MAIN_ONFINISH = (WM_USER + 6);
 
 //Program
-var oFSO = new ActiveXObject("Scripting.FileSystemObject");
+var oFSO       = new ActiveXObject("Scripting.FileSystemObject");
 var oSys       = AkelPad.SystemFunction();
 var hInstDLL   = AkelPad.GetInstanceDll();
 var sClassName = "AkelPad::Scripts::" + WScript.ScriptName + "::" + hInstDLL;
@@ -353,7 +365,7 @@ else
 
   if (ActionItem == undefined)
   {
-    if (AkelPad.IsMDI())
+    if (AkelPad.IsMDI() != WMD_SDI)
     {
       if (lpTemporaryFrame != undefined)
       {
@@ -970,6 +982,17 @@ function FilesList_ActivateSelectedItem(hListWnd)
       activateFrame(lpFrame);
       apply_active_frame(lpFrame);
     }
+  }
+
+  if (AkelPad.IsMDI() == WMD_PMDI)
+  {
+    // In case of PMDI, the focus goes to the activated edit window.
+    // So we have to return the focus back to this script's window.
+    if (oSys.Call("user32::SetForegroundWindow", hWndDlg))
+    {
+      oSys.Call("user32::SetFocus", hWndFilterEdit);
+    }
+    //WScript.Echo("hFgWnd=0x" + oSys.Call("user32::GetForegroundWindow").toString(16) + " hFocused=0x" + oSys.Call("user32::GetFocus").toString(16));
   }
 }
 
