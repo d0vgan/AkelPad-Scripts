@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.4.3
+// Version: 0.4.4
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -59,10 +59,11 @@ var Options = {
   IsTransparent : false, // whether the popup dialog is tranparent
   OpaquePercent : 80, // applies when IsTransparent is `true`
   SaveDlgPosSize : true, // whether to save the popup dialog position and size
-  SaveLastFilter : false, // whether to save the last filter
+  SaveLastFilter : false, // experimental: whether to save the last filter
   PathDepth : 4, // path depth of items in the file list
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
+  FoldersInFavourites : false, // experimental: folders in Favourites
   ShowItemPrefixes : true  // whether to show the [A], [F] and [H] prefixes
 }
 
@@ -102,6 +103,7 @@ var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
 var WM_KEYDOWN         = 0x0100;
+var WM_KEYUP           = 0x0101;
 var WM_CHAR            = 0x0102;
 var WM_SYSKEYDOWN      = 0x0104;
 var WM_COMMAND         = 0x0111;
@@ -199,6 +201,7 @@ var AKD_FRAMEFIND = (WM_USER + 264);
 var AKD_FRAMEFINDW = (WM_USER + 266);
 var AKD_FRAMEINDEX = (WM_USER + 270);
 var AKDN_MAIN_ONFINISH = (WM_USER + 6);
+var AEM_GETUNWRAPLINE = (WM_USER + 2119);
 
 //Program
 var oFSO       = new ActiveXObject("Scripting.FileSystemObject");
@@ -224,7 +227,7 @@ var nRecentFilesOffset = 6000;
 var lpInitialFrame = getCurrentFrame();
 var nInitialSelStart = AkelPad.GetSelStart();
 var nInitialSelEnd = AkelPad.GetSelEnd();
-var nInitialFirstVisibleLine = AkelPad.SendMessage(hWndEdit, EM_GETFIRSTVISIBLELINE, 0, 0);
+var nInitialFirstVisibleLine = Edit_GetFirstVisibleLine(hWndEdit);
 var lpActiveFrame = lpInitialFrame;
 var lpTemporaryFrame = undefined;
 var nLastOffsetFromFilesList = undefined;
@@ -234,6 +237,8 @@ var nActiveFirstVisibleLine = nInitialFirstVisibleLine;
 var oInitialSettings = undefined;
 var isFavouritesLoaded = false;
 var isRecentFilesLoaded = false;
+//var logfile = oFSO.GetFile("D:\\temp\\1.txt");
+//var log = logfile.OpenAsTextStream(2);
 
 if (hWndDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sClassName, 0))
 {
@@ -383,7 +388,7 @@ else
       }
 
       var hEd = AkelPad.GetEditWnd();
-      var nFirstVisibleLine = AkelPad.SendMessage(hEd, EM_GETFIRSTVISIBLELINE, 0, 0);
+      var nFirstVisibleLine = Edit_GetFirstVisibleLine(hEd);
       if (nInitialFirstVisibleLine != nFirstVisibleLine)
       {
         AkelPad.SendMessage(hEd, EM_LINESCROLL, 0, (nInitialFirstVisibleLine - nFirstVisibleLine));
@@ -474,6 +479,14 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
   }
 
+  else if (uMsg == WM_KEYUP)
+  {
+    if (wParam == VK_ESCAPE)
+    {
+      oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
+    }
+  }
+
   else if (uMsg == WM_COMMAND)
   {
     if (HIWORD(wParam) == LBN_DBLCLK)
@@ -502,7 +515,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       nActiveFrameSelStart = AkelPad.GetSelStart();
       nActiveFrameSelEnd = AkelPad.GetSelEnd();
       var hEd = AkelPad.GetEditWnd();
-      nActiveFirstVisibleLine = AkelPad.SendMessage(hEd, EM_GETFIRSTVISIBLELINE, 0, 0);
+      nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(hEd);
     }
   }
 
@@ -574,9 +587,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
 function FilterEditCallback(hWnd, uMsg, wParam, lParam)
 {
+  //log.WriteLine("Edit: uMsg=" + uMsg + " wParam=" + wParam);
   if (uMsg == WM_KEYDOWN)
   {
-    if ((wParam == VK_BACK) || (wParam == VK_DELETE))
+    if (wParam == VK_BACK || wParam == VK_DELETE)
     {
       if ((wParam == VK_BACK) && IsCtrlPressed()) // Ctrl+Backspace
       {
@@ -605,15 +619,15 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       AkelPad.WindowNoNextProc(hSubclassFilterEdit);
       return 0;
     }
-    if ((wParam == VK_DOWN) || (wParam == VK_UP) ||
-        (wParam == VK_PRIOR) || (wParam == VK_NEXT))
+    else if (wParam == VK_DOWN || wParam == VK_UP ||
+             wParam == VK_PRIOR || wParam == VK_NEXT)
     {
       AkelPad.SendMessage(hWndFilesList, uMsg, wParam, lParam);
 
       AkelPad.WindowNoNextProc(hSubclassFilterEdit);
       return 0;
     }
-    if (wParam == VK_F3)
+    else if (wParam == VK_F3)
     {
       if (!IsCtrlPressed())
       {
@@ -625,6 +639,14 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         AkelPad.WindowNoNextProc(hSubclassFilterEdit);
         return 0;
       }
+    }
+  }
+  else if (uMsg == WM_KEYUP)
+  {
+    if (wParam == VK_ESCAPE)
+    {
+      oSys.Call("user32::PostMessage" + _TCHAR, hWndDlg, WM_CLOSE, 0, 0);
+      return 0;
     }
   }
   else if (uMsg == WM_CHAR)
@@ -648,11 +670,12 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
 
 function FilesListCallback(hWnd, uMsg, wParam, lParam)
 {
+  //log.WriteLine("List: uMsg=" + uMsg + " wParam=" + wParam);
   if (uMsg == WM_KEYDOWN)
   {
-    if ((wParam == VK_DOWN) || (wParam == VK_UP) ||
-        (wParam == VK_PRIOR) || (wParam == VK_NEXT) ||
-        (wParam == VK_HOME) || (wParam == VK_END))
+    if (wParam == VK_DOWN || wParam == VK_UP ||
+        wParam == VK_PRIOR || wParam == VK_NEXT ||
+        wParam == VK_HOME || wParam == VK_END)
     {
       AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
       FilesList_ActivateSelectedItem(hWnd);
@@ -664,6 +687,14 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
       AkelPad.SendMessage(hWndFilterEdit, uMsg, wParam, lParam);
       oSys.Call("user32::SetFocus", hWndFilterEdit);
       AkelPad.WindowNoNextProc(hSubclassFilesList);
+      return 0;
+    }
+  }
+  else if (uMsg == WM_KEYUP)
+  {
+    if (wParam == VK_ESCAPE)
+    {
+      oSys.Call("user32::PostMessage" + _TCHAR, hWndDlg, WM_CLOSE, 0, 0);
       return 0;
     }
   }
@@ -777,7 +808,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     }
 
     var hEd = AkelPad.GetEditWnd();
-    var nFirstVisibleLine = AkelPad.SendMessage(hEd, EM_GETFIRSTVISIBLELINE, 0, 0);
+    var nFirstVisibleLine = Edit_GetFirstVisibleLine(hEd);
     if (nActiveFirstVisibleLine != nFirstVisibleLine)
     {
       AkelPad.SendMessage(hEd, EM_LINESCROLL, 0, (nActiveFirstVisibleLine - nFirstVisibleLine));
@@ -954,7 +985,7 @@ function FilesList_ActivateSelectedItem(hListWnd)
     nActiveFrameSelStart = AkelPad.GetSelStart();
     nActiveFrameSelEnd = AkelPad.GetSelEnd();
     var hEd = AkelPad.GetEditWnd();
-    nActiveFirstVisibleLine = AkelPad.SendMessage(hEd, EM_GETFIRSTVISIBLELINE, 0, 0);
+    nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(hEd);
     ApplyFilter(undefined, sLastFullFilter, 0);
   }
 
@@ -969,10 +1000,21 @@ function FilesList_ActivateSelectedItem(hListWnd)
   else if (offset >= nFavouritesOffset)
   {
     var sFullPath = AkelPadFavourites[offset - nFavouritesOffset];
-    AkelPad.OpenFile(sFullPath, 0x00F);
-    var lpFrame = getCurrentFrame();
-    lpTemporaryFrame = lpFrame;
-    apply_active_frame(lpFrame);
+    if (!Options.FoldersInFavourites || oFSO.FileExists(sFullPath))
+    {
+      AkelPad.OpenFile(sFullPath, 0x00F);
+      var lpFrame = getCurrentFrame();
+      lpTemporaryFrame = lpFrame;
+      apply_active_frame(lpFrame);
+    }
+    else if (Options.FoldersInFavourites && oFSO.FolderExists(sFullPath))
+    {
+      AkelPad.Call("Explorer::Main", 1, sFullPath);
+      if (oSys.Call("user32::SetForegroundWindow", hWndDlg))
+      {
+        oSys.Call("user32::SetFocus", hWndFilterEdit);
+      }
+    }
   }
   else if (offset >= nFramesOffset)
   {
@@ -1149,6 +1191,12 @@ function GetWndText(hWnd)
 function SetWndText(hWnd, sText)
 {
   oSys.Call("user32::SetWindowTextW", hWnd, sText);
+}
+
+function Edit_GetFirstVisibleLine(hEd)
+{
+  var nLine = AkelPad.SendMessage(hEd, EM_GETFIRSTVISIBLELINE, 0, 0);
+  return AkelPad.SendMessage(hEd, AEM_GETUNWRAPLINE, nLine, 0);
 }
 
 function IsCtrlPressed()
@@ -1361,7 +1409,9 @@ function getFavourites()
             fpath = fpath.replace(/%a/g, AkelPad.GetAkelDir(0));
             fpath = substituteEnvVars(fpath);
             fpath = oFSO.GetAbsolutePathName(fpath);
-            if (!Options.CheckIfFavouriteFileExist || oFSO.FileExists(fpath))
+            if (!Options.CheckIfFavouriteFileExist ||
+                oFSO.FileExists(fpath) ||
+                (Options.FoldersInFavourites && oFSO.FolderExists(fpath)))
             {
               favourites.push(fpath);
             }
