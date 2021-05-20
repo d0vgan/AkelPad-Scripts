@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.5
+// Version: 0.5.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -26,6 +26,7 @@ Keys:
   Esc      - close and return to the original file and position in that file
   F3       - find next (down), works with @text and #text
   Shift+F3 - find previous (up), works with @text and #text
+  Alt+A    - select window / manage the currently opened files
   Alt+F    - edit the Favourites ("GoToAnything.fav")
   Alt+H    - manage the Recent Files History (calling RecentFiles::Manage)
 
@@ -252,8 +253,9 @@ function createConsts()
   c.nFramesOffset = 2000;
   c.nFavouritesOffset = 4000;
   c.nRecentFilesOffset = 6000;
-  c.nActionManageRecentFiles = -101;
+  c.nActionSelectWindow = -101;
   c.nActionEditFavourites = -102;
+  c.nActionManageRecentFiles = -103;
   return c;
 }
 
@@ -427,10 +429,10 @@ function runScript()
   {
     restore_initial_tab();
   }
-  else if (oState.ActionItem == Consts.nActionManageRecentFiles)
+  else if (oState.ActionItem == Consts.nActionSelectWindow)
   {
     restore_initial_tab();
-    AkelPad.Call("RecentFiles::Manage");
+    AkelPad.Command(4327);
   }
   else if (oState.ActionItem == Consts.nActionEditFavourites)
   {
@@ -440,6 +442,11 @@ function runScript()
       oFSO.CreateTextFile(sFavFile, false, true);
     }
     AkelPad.OpenFile(sFavFile, 0x00F);
+  }
+  else if (oState.ActionItem == Consts.nActionManageRecentFiles)
+  {
+    restore_initial_tab();
+    AkelPad.Call("RecentFiles::Manage");
   }
 
   oSys.Call("user32::SetFocus", hWndMain);
@@ -721,15 +728,21 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
       }
 
-      if (wParam == 0x48) // Alt+H
+      if (wParam == 0x41) // Alt+A
       {
-        oState.ActionItem = Consts.nActionManageRecentFiles;
+        oState.ActionItem = Consts.nActionSelectWindow;
         remove_syschar_message_and_close();
         return 0;
       }
       else if (wParam == 0x46) // Alt+F
       {
         oState.ActionItem = Consts.nActionEditFavourites;
+        remove_syschar_message_and_close();
+        return 0;
+      }
+      else if (wParam == 0x48) // Alt+H
+      {
+        oState.ActionItem = Consts.nActionManageRecentFiles;
         remove_syschar_message_and_close();
         return 0;
       }
