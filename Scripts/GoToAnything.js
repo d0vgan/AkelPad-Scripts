@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.5.1
+// Version: 0.5.2
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -24,6 +24,7 @@ Keys:
 
   Enter    - close and stay where we are
   Esc      - close and return to the original file and position in that file
+  F1       - help
   F3       - find next (down), works with @text and #text
   Shift+F3 - find previous (up), works with @text and #text
   Alt+A    - select window / manage the currently opened files
@@ -70,6 +71,32 @@ var Options = {
   ShowItemPrefixes : true  // whether to show the [A], [F] and [H] prefixes
 }
 
+//Help Text
+var sScriptHelp = "Syntax:\n \
+\n \
+  filename\t- switch to a file containing \"filename\" in its name\n \
+  filename" + Options.Char_GoToLine + "123\t- switch to a file containing \"filename\" in its name\n \
+  \t\tand go to line 123\n \
+  filename" + Options.Char_GoToText1 + "text\t- switch to a file containing \"filename\" in its name\n \
+  \t\tand find \"text\" in it, from the beginning\n \
+  filename" + Options.Char_GoToText2 + "text\t- switch to a file containing \"filename\" in its name\n \
+  \t\tand find \"text\" in it, from the current position\n \
+  " + Options.Char_GoToLine + "123\t\t- go to line 123 in the current file\n \
+  " + Options.Char_GoToText1 + "text\t\t- find \"text\" in the current file, from the beginning\n \
+  " + Options.Char_GoToText2 + "text\t\t- find \"text\" in the current file, from the current\n\
+  \t\tposition\n \
+\n \
+Keys:\n \
+\n \
+  Enter\t- close and stay where we are\n \
+  Esc\t- close and return to the original file and position in that file\n \
+  F1\t- this help\n \
+  F3\t- find next (down), works with " + Options.Char_GoToText1 + "text and " + Options.Char_GoToText2 + "text\n \
+  Shift+F3 - find previous (up), works with " + Options.Char_GoToText1 + "text and " + Options.Char_GoToText2 + "text\n \
+  Alt+A\t- select window / manage the currently opened files\n \
+  Alt+F\t- edit the Favourites (\"GoToAnything.fav\")\n \
+  Alt+H\t- manage the Recent Files History (RecentFiles::Manage)";
+
 //Windows Constants
 var TRUE  = 1;
 var FALSE = 0;
@@ -88,11 +115,15 @@ var VK_UP       = 0x26;
 var VK_RIGHT    = 0x27;
 var VK_DOWN     = 0x28;
 var VK_DELETE   = 0x2E;
+var VK_F1       = 0x70;
 var VK_F3       = 0x72;
 var HWND_DESKTOP = 0;
 var SW_HIDE    = 0;
 var SW_SHOWNA  = 8;
 var SW_RESTORE = 9;
+var DEFAULT_GUI_FONT = 17;
+var COLOR_WINDOW = 5;
+var MB_OK = 0x00000;
 
 //Windows Messages
 var WM_CREATE          = 0x0001;
@@ -105,6 +136,7 @@ var WM_CLOSE           = 0x0010;
 var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
+var WM_HELP            = 0x0053;
 var WM_KEYDOWN         = 0x0100;
 var WM_KEYUP           = 0x0101;
 var WM_CHAR            = 0x0102;
@@ -131,17 +163,18 @@ var LBN_DBLCLK         = 2;
 var PM_REMOVE          = 0x0001;
 
 //Windows Styles
-var WS_TABSTOP  = 0x00010000;
-var WS_SIZEBOX  = 0x00040000;
-var WS_SYSMENU  = 0x00080000;
-var WS_HSCROLL  = 0x00100000;
-var WS_VSCROLL  = 0x00200000;
-var WS_BORDER   = 0x00800000;
-var WS_CAPTION  = 0x00C00000;
-var WS_VISIBLE  = 0x10000000;
-var WS_CHILD    = 0x40000000;
-var WS_POPUP    = 0x80000000;
-var WS_EX_LAYERED = 0x00080000;
+var WS_TABSTOP = 0x00010000;
+var WS_SIZEBOX = 0x00040000;
+var WS_SYSMENU = 0x00080000;
+var WS_HSCROLL = 0x00100000;
+var WS_VSCROLL = 0x00200000;
+var WS_BORDER  = 0x00800000;
+var WS_CAPTION = 0x00C00000;
+var WS_VISIBLE = 0x10000000;
+var WS_CHILD   = 0x40000000;
+var WS_POPUP   = 0x80000000;
+var WS_EX_CONTEXTHELP = 0x00000400;
+var WS_EX_LAYERED     = 0x00080000;
 var ES_AUTOHSCROLL  = 0x0080;
 var LBS_NOTIFY      = 0x0001;
 var LBS_SORT        = 0x0002;
@@ -281,6 +314,7 @@ function createState()
   s.nActiveFirstVisibleLine = s.nInitialFirstVisibleLine;
   s.isFavouritesLoaded = false;
   s.isRecentFilesLoaded = false;
+  s.isHelpJustShown = false;
   return s;
 }
 
@@ -311,7 +345,7 @@ function runScript()
       var sBkColor = getColorThemeVariable(hWndEdit, "HighLight_BasicBkColor");
       nTextColorRGB = getRgbIntFromHex(sTextColor);
       nBkColorRGB = getRgbIntFromHex(sBkColor);
-      //WScript.Echo("TextColor = " + sTextColor + "\nBkColor = " + sBkColor);
+      //log.WriteLine("TextColor = " + sTextColor + "\nBkColor = " + sBkColor);
       if (nTextColorRGB != -1 && nBkColorRGB != -1)
       {
         hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
@@ -326,7 +360,7 @@ function runScript()
   var nDlgWidth  = 600;
   var nDlgHeight = 530;
   var nEditHeight = 20;
-  var dwExStyle = Options.IsTransparent ? WS_EX_LAYERED : 0;
+  var dwExStyle = (Options.IsTransparent ? WS_EX_LAYERED : 0) | WS_EX_CONTEXTHELP;
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
   aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight]);
@@ -467,7 +501,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     {
       W = (aWnd[i][IDX_W] < 0) ? (rectClient.W - 2*aWnd[i][IDX_X]) : aWnd[i][IDX_W];
       H = (aWnd[i][IDX_H] < 0) ? (rectClient.H - aWnd[i][IDX_Y]) : aWnd[i][IDX_H];
-      //WScript.Echo(aWnd[i][IDX_CLASS] + ": " + W + "x" + H);
+      //log.WriteLine(aWnd[i][IDX_CLASS] + ": " + W + "x" + H);
       aWnd[i][IDX_HWND] =
         oSys.Call("user32::CreateWindowEx" + _TCHAR,
                   aWnd[i][IDX_EXSTYLE], //dwExStyle
@@ -519,6 +553,9 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
   else if (uMsg == WM_KEYDOWN)
   {
+    //log.WriteLine("DialogCallback - WM_KEYDOWN - " + wParam.toString(16));
+    oState.isHelpJustShown = false;
+    //log.WriteLine("isHelpJustShown = false");
     if (wParam == VK_ESCAPE)
     {
       oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
@@ -528,13 +565,22 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
       oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
     }
+    //else if (wParam == VK_F1)
+    //{
+    //  showHelp();
+    //  return 0;
+    //}
   }
 
   else if (uMsg == WM_KEYUP)
   {
     if (wParam == VK_ESCAPE)
     {
-      oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
+      //log.WriteLine("DialogCallback - WM_KEYUP - VK_ESCAPE");
+      if (!oState.isHelpJustShown)
+      {
+        oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
+      }
     }
   }
 
@@ -599,6 +645,11 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
   }
 
+  else if (uMsg == WM_HELP)
+  {
+    showHelp();
+  }
+
   else if (uMsg == WM_CLOSE)
   {
     if (Options.SaveDlgPosSize || Options.SaveLastFilter)
@@ -640,6 +691,9 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
   //log.WriteLine("Edit: uMsg=" + uMsg + " wParam=" + wParam);
   if (uMsg == WM_KEYDOWN)
   {
+    //log.WriteLine("FilterEditCallback - WM_KEYDOWN - " + wParam.toString(16));
+    oState.isHelpJustShown = false;
+    //log.WriteLine("isHelpJustShown = false");
     if (wParam == VK_BACK || wParam == VK_DELETE)
     {
       if ((wParam == VK_BACK) && IsCtrlPressed()) // Ctrl+Backspace
@@ -695,8 +749,12 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
   {
     if (wParam == VK_ESCAPE)
     {
-      oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
-      return 0;
+      //log.WriteLine("FilterEditCallback - WM_KEYUP - VK_ESCAPE");
+      if (!oState.isHelpJustShown)
+      {
+        oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
+        return 0;
+      }
     }
   }
   else if (uMsg == WM_CHAR)
@@ -755,6 +813,9 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   //log.WriteLine("List: uMsg=" + uMsg + " wParam=" + wParam);
   if (uMsg == WM_KEYDOWN)
   {
+    //log.WriteLine("FilesListCallback - WM_KEYDOWN - " + wParam.toString(16));
+    oState.isHelpJustShown = false;
+    //log.WriteLine("isHelpJustShown = false");
     if (wParam == VK_DOWN || wParam == VK_UP ||
         wParam == VK_PRIOR || wParam == VK_NEXT ||
         wParam == VK_HOME || wParam == VK_END)
@@ -776,8 +837,12 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   {
     if (wParam == VK_ESCAPE)
     {
-      oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
-      return 0;
+      //log.WriteLine("FilesListCallback - WM_KEYUP - VK_ESCAPE");
+      if (!oState.isHelpJustShown)
+      {
+        oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
+        return 0;
+      }
     }
   }
   else if (uMsg == WM_CHAR)
@@ -1172,7 +1237,7 @@ function FilesList_ActivateSelectedItem(hListWnd)
     {
       oSys.Call("user32::SetFocus", hWndFilterEdit);
     }
-    //WScript.Echo("hFgWnd=0x" + oSys.Call("user32::GetForegroundWindow").toString(16) + " hFocused=0x" + oSys.Call("user32::GetFocus").toString(16));
+    //log.WriteLine("hFgWnd=0x" + oSys.Call("user32::GetForegroundWindow").toString(16) + " hFocused=0x" + oSys.Call("user32::GetFocus").toString(16));
   }
 }
 
@@ -1517,6 +1582,14 @@ function isApplyingColorTheme()
   return (Options.ApplyColorTheme && nBkColorRGB != -1 && nTextColorRGB != -1);
 }
 
+function showHelp()
+{
+  oState.isHelpJustShown = true;
+  //log.WriteLine("isHelpJustShown = true");
+  oSys.Call("user32::MessageBox" + _TCHAR, hWndScriptDlg, sScriptHelp, sScriptName + ": Help", MB_OK);
+  oSys.Call("user32::SetFocus", hWndFilterEdit);
+}
+
 function getAllFrames()
 {
   var lpStartFrame = getCurrentFrame();
@@ -1578,7 +1651,7 @@ function getFavourites()
         fpath = fpaths[i];
         if (fpath.length > 0)
         {
-          fpath = strTrim(fpath); //WScript.Echo("'" + fpath + "'");
+          fpath = strTrim(fpath); //log.WriteLine("'" + fpath + "'");
           if (fpath.length > 0)
           {
             fpath = fpath.replace(/%a/g, AkelPad.GetAkelDir(0));
