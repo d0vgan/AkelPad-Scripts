@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.5.2
+// Version: 0.5.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -1254,6 +1254,7 @@ function MatchFilter(sFilter, sFilePath)
 {
   var i;
   var j;
+  var c;
   var m;
   var fname = getFileName(sFilePath);
 
@@ -1269,7 +1270,9 @@ function MatchFilter(sFilter, sFilePath)
   m = "";
   for (i = 0; i < sFilter.length; i++)
   {
-    j = fname.indexOf(sFilter.substr(i, 1), j);
+    c = sFilter.substr(i, 1);
+    if (c != " ") // ' ' matches any character
+      j = fname.indexOf(c, j);
     if (j == -1)
     {
       m = ""; // no match
@@ -1297,7 +1300,9 @@ function MatchFilter(sFilter, sFilePath)
     m = "";
     for (i = 0; i < sFilter.length; i++)
     {
-      j = sFilePath.indexOf(sFilter.substr(i, 1), j);
+      c = sFilter.substr(i, 1);
+      if (c != " ") // ' ' matches any character
+        j = sFilePath.indexOf(c, j);
       if (j == -1)
         return ""; // no match
 
