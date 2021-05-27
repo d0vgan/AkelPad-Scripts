@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.6.1
+// Version: 0.6.2
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -824,6 +824,7 @@ function MatchFilter(sFilter, sLine)
 {
   var i;
   var j;
+  var c;
   var m;
 
   i = sLine.indexOf(sFilter);
@@ -838,7 +839,9 @@ function MatchFilter(sFilter, sLine)
   m = "";
   for (i = 0; i < sFilter.length; i++)
   {
-    j = sLine.indexOf(sFilter.substr(i, 1), j);
+    c = sFilter.substr(i, 1);
+    if (c != " ") // ' ' matches any character
+      j = sLine.indexOf(c, j);
     if (j == -1)
       return ""; // no match
 
