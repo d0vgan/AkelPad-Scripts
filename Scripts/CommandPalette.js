@@ -183,6 +183,12 @@ var sCmdFilter = "";
 var sCmdFilter0 = "";
 var nCmdIndex = -1;
 var nCmdIndex0 = -1;
+var bUseFuzzySort = false;
+
+if (AkelPad.Include("fuzzysort.js"))
+{
+  bUseFuzzySort = true;
+}
 
 if (!UseListView)
 {
@@ -866,23 +872,26 @@ function getFullCmdText(cmdText, cmdIdx)
   if (ShowCmdIds)
   {
     var oCmd = Commands[cmdIdx];
-    if (oCmd.type == CMDTYPE_AKELPAD)
+    if (oCmd && oCmd.type)
     {
-      var num = oCmd.cmd.toString();
-      while (num.length < 4)  num = "0" + num;
-      cmdText = "[" + num + "] " + cmdText;
-    }
-    else if (oCmd.type == CMDTYPE_PLUGIN)
-    {
-      cmdText = "[plug] " + cmdText;
-    }
-    else if (oCmd.type == CMDTYPE_SCRIPT)
-    {
-      cmdText = "[scrp] " + cmdText;
-    }
-    else if (oCmd.type == CMDTYPE_EXEC)
-    {
-      cmdText = "[exec] " + cmdText;
+      if (oCmd.type == CMDTYPE_AKELPAD)
+      {
+        var num = oCmd.cmd.toString();
+        while (num.length < 4)  num = "0" + num;
+        cmdText = "[" + num + "] " + cmdText;
+      }
+      else if (oCmd.type == CMDTYPE_PLUGIN)
+      {
+        cmdText = "[plug] " + cmdText;
+      }
+      else if (oCmd.type == CMDTYPE_SCRIPT)
+      {
+        cmdText = "[scrp] " + cmdText;
+      }
+      else if (oCmd.type == CMDTYPE_EXEC)
+      {
+        cmdText = "[exec] " + cmdText;
+      }
     }
   }
   return cmdText;
@@ -1079,36 +1088,81 @@ function CommandsList_Fill(hListWnd, sFilter)
   if (sFilter != undefined)
     sFilter = sFilter.toLowerCase();
 
-  for (i = 0; i < Commands.length; i++)
+  if (bUseFuzzySort && sFilter != undefined && sFilter != "")
   {
-    C = [];
-    C.push(i); // [0] = idx
-    C.push(Commands[i].name); // [1] = name
-    if (sFilter == undefined || sFilter == "")
+    var Items = [];
+    for (i = 0; i < Commands.length; i++)
     {
-      C.push(0); // [2] = match result
-      Matches.push(C);
+      C = {
+        idx: i,
+        name: Commands[i].name
+      };
+      Items.push(C);
     }
-    else
+    var opt = { key: "name", allowTypo : true };
+    var Result = fuzzysort.go(sFilter, Items, opt);
+    if (Result != undefined && Result != null)
     {
-      cmdText = C[1].toLowerCase();
-      n = cmdText.indexOf("::");
-      if (n != -1)
+      if (!Result.length)
       {
-        // allows to type ' ' instead of '::'
-        cmdText = cmdText.replace("::", ":: ");
+        if (Result.obj)
+        {
+          C = [];
+          C.push(Result.obj.idx);
+          C.push(Result.target);
+          C.push(Result.score);
+          Matches.push(C);
+        }
       }
-      cmdText = getFullCmdText(cmdText, C[0]);
-      n = MatchFilter(sFilter, cmdText);
-      if (n != "")
+      else
       {
-        C.push(n); // [2] = match result
-        Matches.push(C);
+        for (i = 0; i < Result.length; i++)
+        {
+          if (Result[i].obj)
+          {
+            C = [];
+            C.push(Result[i].obj.idx);
+            C.push(Result[i].target);
+            C.push(Result[i].score);
+            Matches.push(C);
+          }
+        }
       }
     }
   }
+  else
+  {
+    for (i = 0; i < Commands.length; i++)
+    {
+      C = [];
+      C.push(i); // [0] = idx
+      C.push(Commands[i].name); // [1] = name
+      if (sFilter == undefined || sFilter == "")
+      {
+        C.push(0); // [2] = match result
+        Matches.push(C);
+      }
+      else
+      {
+        cmdText = C[1].toLowerCase();
+        n = cmdText.indexOf("::");
+        if (n != -1)
+        {
+          // allows to type ' ' instead of '::'
+          cmdText = cmdText.replace("::", ":: ");
+        }
+        cmdText = getFullCmdText(cmdText, C[0]);
+        n = MatchFilter(sFilter, cmdText);
+        if (n != "")
+        {
+          C.push(n); // [2] = match result
+          Matches.push(C);
+        }
+      }
+    }
 
-  Matches.sort(compareByCommand);
+    Matches.sort(compareByCommand);
+  }
 
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, FALSE, 0);
   CommandsList_Clear(hListWnd);
