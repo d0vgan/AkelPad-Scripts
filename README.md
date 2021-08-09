@@ -10,7 +10,7 @@ Collection of scripts for AkelPad text editor
 **GoToAnything.js** - Switches to file / goes to line / finds text. Supports Favourites and Recent Files History.  
 **GoToAnything.fav** - Example of Favourites file for GoToAnything.js.  
 **KeySubst.js** - Replaces Latin characters with Cyrillic ones while typing.  
-**LineSelect.js** - Selects the current line.
+**LineSelect.js** - Selects the current line.  
 **ProcessSelectedText.js** - Example of processing (modification) of the selected text.  
 **QSearchAutoFocus.js** - Example of a resident script. [The QSearch plugin has its own option "Window: QSearch auto-focus (on file open)", so it does not need this script].  
 **RunMe.js** - Executes the current file in predefined external program.  
