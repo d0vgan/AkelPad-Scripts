@@ -1,3 +1,6 @@
+// https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/LineSelect.js
+// Version: 0.1
+// Author: Vitaliy Dovgan aka DV
 //
 // *** Selects the current line ***
 //
