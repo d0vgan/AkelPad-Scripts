@@ -1,5 +1,5 @@
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/LineSelect.js
-// Version: 0.1
+// Version: 0.1.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Selects the current line ***
@@ -225,7 +225,10 @@ function SelectLine(hEditWnd, lpIndex)
     AkelPad.MemCopy(_PtrAdd(lpEndIndex, _X64 ? 8 : 4), lpEndLine, DT_QWORD);
     AkelPad.MemCopy(_PtrAdd(lpEndIndex, _X64 ? 16 : 8), nEndLinePos, DT_QWORD);
 
-    AkelPad.SendMessage(hEditWnd, AEM_EXSETSEL, lpStartIndex, lpEndIndex);
+    if (AkelPad.SendMessage(hEditWnd, AEM_INDEXCOMPARE, lpStartIndex, lpEndIndex) <= 0)
+    {
+      AkelPad.SendMessage(hEditWnd, AEM_EXSETSEL, lpStartIndex, lpEndIndex);
+    }
   }
   if (lpStartIndex)
   {
