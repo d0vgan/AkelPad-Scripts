@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.5.3
+// Version: 0.6
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -68,7 +68,8 @@ var Options = {
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
   FoldersInFavourites : false, // experimental: folders in Favourites
-  ShowItemPrefixes : true  // whether to show the [A], [F] and [H] prefixes
+  ShowItemPrefixes : true,  // whether to show the [A], [F] and [H] prefixes
+  IsTextSearchFuzzy : true // when true, @text also matches "toexact" and "theexit"
 }
 
 //Help Text
@@ -873,13 +874,15 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
   var sFindWhat = "";
   var nLine = -1;
   var fromBeginning = false;
+  var i;
+  var c;
 
   if (sFilter != undefined && sFilter != "")
   {
-    var i = GetSpecialPosInFilter(sFilter);
+    i = GetSpecialPosInFilter(sFilter);
     if (i != -1)
     {
-      var c = sFilter.substr(i, 1);
+      c = sFilter.substr(i, 1);
       if (c == Options.Char_GoToText1 || c == Options.Char_GoToText2)
       {
         if (c == Options.Char_GoToText1 && nFindNext == 0)
@@ -936,6 +939,33 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     {
       var nSelStart = AkelPad.GetSelStart();
       AkelPad.SetSel(nSelStart, nSelStart);
+    }
+    if (Options.IsTextSearchFuzzy)
+    {
+      var t = sFindWhat.replace(/[.*+\-?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+      sFindWhat = "";
+      for (i = 0; i < t.length; i++)
+      {
+        c = t.charAt(i);
+        if (c != " ")
+        {
+          sFindWhat += c;
+          if (c == "\\")
+          {
+            i++;
+            sFindWhat += t.charAt(i);
+          }
+          if (i < t.length - 1)
+          {
+            sFindWhat += "\\w*?";
+          }
+        }
+        else
+        {
+          sFindWhat += "(.|[ \\t]*?)"; // ' ' matches any character or spaces
+        }
+      }
+      nFlags |= FRF_REGEXP|FRF_REGEXPNONEWLINEDOT;
     }
 
     n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
