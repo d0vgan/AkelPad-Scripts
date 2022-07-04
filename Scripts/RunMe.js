@@ -1,6 +1,6 @@
 /**********************************************************************
- *  RunMe.js  v.2.2                                                   *
- *  (C) DV, Dec 2015                                                  *
+ *  RunMe.js  v.2.3                                                   *
+ *  (C) DV, Jul 2022                                                  *
  **********************************************************************/
 /*
  *  Simple usage:
@@ -51,27 +51,33 @@
  *
  *  Note:
  *  When using a compiler or an interpreter, you can specify a command
- *  in a form of "cmd /c your-command-here || pause".
+ *  in a form of "cmd /C your-command-here || pause".
  *  This makes the console window remain in case of error from the
  *  compiler/interpreter.
  *
  **********************************************************************/
 
+// root directory that contains all the tools
+var sToolsRootDir = "%a\\..\\";
 
 // user-defined set of file extensions and commands
 var oCommands = {
   "ini txt nfo coder" :
     "" /* do nothing */ ,
   "bat cmd" :
-    "cmd /c \"%f\" || pause" ,
+    "cmd /C cd /D \"%d\" && \"%n.%e\" || pause" ,
+  "ps1" :
+    ":run_ps1(\"%f\")" ,
   "js" :
     ":run_js(\"%d\", \"%n.%e\")" ,
   "c" :
-    "cmd /c C:\\tools\\tcc\\tcc.exe -luser32 -run \"%f\" || pause" ,
+    "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "tcc\\tcc.exe\" -luser32 -run \"%n.%e\" || pause" ,
   "cpp cc cxx hxx hpp hh h" :
     ":run_cpp(\"%f\")" ,
   "awk" :
-    "cmd /c C:\\tools\\gawk\\gawk.exe -f \"%f\" || pause" ,
+    "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "gawk\\gawk.exe\" -f \"%n.%e\" || pause" ,
+  "ahk" :
+    "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "AutoHotKey\\AutoHotkey32.exe\" \"%n.%e\" || pause" ,
   "nsi nsis" :
     ":run_nsis(\"%f\")" ,
   "py" :
@@ -79,7 +85,7 @@ var oCommands = {
   "pas pp" :
     ":run_pas(\"%f\")" ,
   "xml" :
-    "cmd /c C:\\tools\\libxml\\xmllint.exe --format \"%f\" || pause" ,
+    "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "libxml\\xmllint.exe\" --format \"%n.%e\" || pause" ,
 
   // this item should be always the last one!
   "" /* apply to any remained extension */ :
@@ -116,11 +122,19 @@ function run_pas(filePathName, args) // 'args' is optional
   var cmd1 = "fpc.exe \"%f\""; // compile
   var cmd2 = buildCommandWithOptionalArgs("\"%n.exe\"", args); // run the .exe in Log::Output
 //  var cmd2 = "rundll32.exe shell32,ShellExec_RunDLL \"%n.exe\""; // run the .exe
-  var cmd = "cmd /c " + cmd1 + " && " + cmd2;
+  var cmd = "cmd /C " + cmd1 + " && " + cmd2;
   cmd = substituteVars(cmd, filePathName); // pre-process %f, %n etc.
   setCurrentDir(getFileDir(filePathName));
   runCommand(cmd); // run
   envSetVar("PATH", sPath); // restoring original PATH
+}
+
+function run_ps1(filePathName, args) // 'args' is optional
+{
+  var dir = getFileDir(filePathName);
+  var fileNameExt = getFileNameExt(filePathName);
+  var cmd = buildCommandWithOptionalArgs("powershell \".\\" + fileNameExt + "\"", args);
+  runCommand(cmd, dir);
 }
 
 function run_py(filePathName, args) // 'args' is optional
@@ -146,47 +160,59 @@ function run_cpp(filePathName, args) // 'args' is optional
     // cmd3: run the executable
     var cmd3 = buildCommandWithOptionalArgs("\"%d\\%n.exe\"", args);
     // cmd: the whole command line
-    var cmd = "cmd /c " + cmd1 + " && " + cmd2 + " && " + cmd3 + " || pause";
+    var cmd = "cmd /C " + cmd1 + " && " + cmd2 + " && " + cmd3 + " || pause";
     cmd = substituteVars(cmd, filePathName);
     //WScript.Echo(cmd);
     runCommand(cmd, compilerDir);
   }
   else
   {
-    /*  Visual Studio 9 (2008)  */
-    var sProgramFiles = envGetVar("ProgramFiles");
-    var sProgramFilesx86 = envGetVar("ProgramFiles(x86)");
-    if (sProgramFilesx86.length == 0)
-      sProgramFilesx86 = sProgramFiles;
-    else
-      sProgramFiles = sProgramFilesx86.substr(0, sProgramFilesx86.length - 6);
-    var sVcDir = sProgramFilesx86 + "\\Microsoft Visual Studio 9.0\\VC";
-    var sVsCommon = sProgramFilesx86 + "\\Microsoft Visual Studio 9.0\\Common7\\IDE";
-    var sMsSDK = sProgramFiles + "\\Microsoft SDKs\\Windows\\v6.0A";
-    // update PATH environment variable...
-    var sPath = envGetVar("PATH");
-    var sPathNew = sVcDir + "\\bin;" + sMsSDK + "\\bin;" + sVsCommon + ";" + sPath;
-    envSetVar("PATH", sPathNew); //WScript.Echo(envGetVar("PATH"));
-    // update INLUDE environment variable...
-    var sInclude = envGetVar("INCLUDE");
-    var sIncludeNew = sMsSDK + "\\include;" + sVcDir + "\\include;" + sInclude;
-    envSetVar("INCLUDE", sIncludeNew); //WScript.Echo(envGetVar("INCLUDE"));
-    // update LIB environment variable...
-    var sLib = envGetVar("LIB");
-    var sLibNew = sMsSDK + "\\lib;" + sVcDir + "\\lib;" + sLib;
-    envSetVar("LIB", sLibNew); //WScript.Echo(envGetVar("LIB"));
+    // get full path to "vcvarsall.bat"
+    var getVsVarsAllBatPath = function()
+    {
+      var sProgramFiles = envGetVar("ProgramFiles");
+      var sProgramFilesx86 = envGetVar("ProgramFiles(x86)");
+      if (sProgramFilesx86.length == 0)
+        sProgramFilesx86 = sProgramFiles;
+      else
+        sProgramFiles = sProgramFilesx86.substr(0, sProgramFilesx86.length - 6);
+
+      var VS_Years = ["2022", "2019", "2017", "2015"];
+      var VS_Editions = ["Professional", "Community"];
+      var Sys_ProgramFiles = [sProgramFilesx86, sProgramFiles];
+      var batName = "VC\\Auxiliary\\Build\\vcvarsall.bat";
+
+      for (var nYr in VS_Years)
+      {
+        for (var nEd in VS_Editions)
+        {
+          for (var nPf in Sys_ProgramFiles)
+          {
+            var batPath = Sys_ProgramFiles[nPf] + "\\Microsoft Visual Studio\\" + VS_Years[nYr] + "\\" + VS_Editions[nEd] + "\\" + batName;
+            if (isFileExist(batPath))
+              return batPath;
+          }
+        }
+      }
+
+      return undefined;
+    };
+
+    var vcvarsBatPath = getVsVarsAllBatPath();
+    if (vcvarsBatPath == undefined)
+    {
+      WScript.Echo("Could not find \"vcvarsall.bat\"!");
+      WScript.Quit();
+    }
+
     // compile...
     var fileDir = getFileDir(filePathName);
     var cmd1 = "cl /O1 \"%f\" /link kernel32.lib user32.lib comctl32.lib gdi32.lib Advapi32.lib ole32.lib Oleaut32.lib";
     var cmd2 = buildCommandWithOptionalArgs("\"%d\\%n.exe\"", args);
-    var cmd = "cmd /c " + cmd1 + " && " + cmd2 + " || pause";
+    var cmd = "cmd /C \"call \"" + vcvarsBatPath + "\" x86 && " + cmd1 + " && " + cmd2 + "\"";
     cmd = substituteVars(cmd, filePathName);
     //WScript.Echo(cmd);
     runCommand(cmd, fileDir);
-    // restore original environment variables...
-    envSetVar("PATH", sPath);
-    envSetVar("INCLUDE", sInclude);
-    envSetVar("LIB", sLib);
   }
 }
 
@@ -214,7 +240,7 @@ function run_anyfile(filePathName, args) // 'args' is optional
 */
 function isSupportedFileExtFromSelectedText(fileExt)
 {
-  var supportedExts = "bat bmp cmd doc docx exe gif htm html ico ini jpg msi nfo png reg rtf shtm shtml txt xls xlsx xml";
+  var supportedExts = "bat bmp chm cmd doc docx exe gif htm html ico inf ini jpe jpg jpeg md msi nfo pdf png reg rtf shtm shtml txt xls xlsx xml";
   return isOneOf(fileExt, supportedExts);
 }
 
@@ -488,6 +514,15 @@ function getFileDir(filePathName) // file directory w/o trailing '\'
 function isFullPath(filePathName)
 {
   return /^([A-Za-z]\:)|(\\\\)/.test(filePathName);
+}
+
+function isFileExist(filePathName)
+{
+  if (oSys == undefined)
+    oSys = AkelPad.SystemFunction();
+  if (oSys.Call("kernel32::GetFileAttributes" + _TCHAR, filePathName) == -1)
+    return false;
+  return true;
 }
 
 function isOneOf(s, t) // t includes s
