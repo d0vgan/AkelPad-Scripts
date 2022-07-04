@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.6.2
+// Version: 0.6.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -318,16 +318,7 @@ else
     {
       if (ActionItem.cmd == IDM_FILE_CREATENEWWINDOW)
       {
-        // Allowing "New Window" when "Single open program" is on
-        if (AkelPad.SendMessage(hMainWnd, AKD_GETMAININFO, MI_SINGLEOPENPROGRAM, 0))
-        {
-          AkelPad.Command(IDM_OPTIONS_SINGLEOPEN_PROGRAM);
-          var hNewMainWnd = AkelPad.Command(ActionItem.cmd);
-          AkelPad.Command(IDM_OPTIONS_SINGLEOPEN_PROGRAM);
-          AkelPad.SendMessage(hNewMainWnd, WM_COMMAND, IDM_OPTIONS_SINGLEOPEN_PROGRAM, 0);
-        }
-        else
-          AkelPad.Command(ActionItem.cmd);
+        AkelPad_NewInstance();
       }
       else
         AkelPad.Command(ActionItem.cmd);
@@ -1130,6 +1121,40 @@ function LOWORD(nParam)
 function HIWORD(nParam)
 {
   return ((nParam >> 16) & 0xFFFF);
+}
+
+function AkelPad_NewInstance()
+{
+  var oFSO = new ActiveXObject("Scripting.FileSystemObject");
+  var scriptsDir = AkelPad.GetAkelDir(5 /*ADTYPE_SCRIPTS*/);
+  var scriptFiles = ["ForceNewInstance.js", "OpenNewInstance.js"];
+  var scriptFile = "";
+  var i;
+  for (i = 0; i < scriptFiles.length; i++)
+  {
+    if (oFSO.FileExists(scriptsDir + "\\" + scriptFiles[i]))
+    {
+      scriptFile = scriptFiles[i];
+      break;
+    }
+  }
+  if (scriptFile != "")
+  {
+    AkelPad.Call("Scripts::Main", 1, scriptFile);
+  }
+  else
+  {
+    // Allowing "New Window" when "Single open program" is on
+    if (AkelPad.SendMessage(hMainWnd, AKD_GETMAININFO, MI_SINGLEOPENPROGRAM, 0))
+    {
+      AkelPad.Command(IDM_OPTIONS_SINGLEOPEN_PROGRAM);
+      var hNewMainWnd = AkelPad.Command(ActionItem.cmd);
+      AkelPad.Command(IDM_OPTIONS_SINGLEOPEN_PROGRAM);
+      AkelPad.SendMessage(hNewMainWnd, WM_COMMAND, IDM_OPTIONS_SINGLEOPEN_PROGRAM, 0);
+    }
+    else
+      AkelPad.Command(ActionItem.cmd);
+  }
 }
 
 function ReadWriteIni(bWrite)
