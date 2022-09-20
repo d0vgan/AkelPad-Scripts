@@ -1728,7 +1728,7 @@ function getRecentFiles()
       {
         // int nFilePathLen = rf->nFileLen;
         var nFilePathLen = AkelPad.MemRead(_PtrAdd(lpRf, (_X64 ? 16 : 8) + 520), DT_DWORD);
-        if (nFilePathLen != 0)
+        if (nFilePathLen > 0 && nFilePathLen < 520)
         {
           // const wchar_t* sFilePath = rf->wszFile;
           var sFilePath = AkelPad.MemRead(_PtrAdd(lpRf, _X64 ? 16 : 8), DT_UNICODE, nFilePathLen);
