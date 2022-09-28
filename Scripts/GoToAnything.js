@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.6
+// Version: 0.6.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -1715,20 +1715,23 @@ function getRecentFiles()
 
   var recentFiles = [];
 
-  // STACKRECENTFILE *rfs;
-  var lpRfS = AkelPad.MemAlloc(_X64 ? 24 : 16); // sizeof(STACKRECENTFILE)
-  if (lpRfS)
+  // STACKRECENTFILE **lplpRfS = (STACKRECENTFILE **) malloc( sizeof(STACKRECENTFILE*) );
+  var lplpRfS = AkelPad.MemAlloc(_X64 ? 8 : 4);
+  if (lplpRfS)
   {
-    var nMaxRecentFiles = AkelPad.SendMessage(hWndMain, AKD_RECENTFILES, RF_GET, lpRfS);
+    var nMaxRecentFiles = AkelPad.SendMessage(hWndMain, AKD_RECENTFILES, RF_GET, lplpRfS);
     if (nMaxRecentFiles > 0)
     {
+      // STACKRECENTFILE *rfs = *lplpRfS;
+      var lpRfS = AkelPad.MemRead(lplpRfS, _X64 ? DT_QWORD : DT_DWORD);
+
       // RECENTFILE *rf = rfs->first;
       var lpRf = AkelPad.MemRead(lpRfS, _X64 ? DT_QWORD : DT_DWORD);
       while (lpRf)
       {
         // int nFilePathLen = rf->nFileLen;
         var nFilePathLen = AkelPad.MemRead(_PtrAdd(lpRf, (_X64 ? 16 : 8) + 520), DT_DWORD);
-        if (nFilePathLen > 0 && nFilePathLen < 520)
+        if (nFilePathLen > 0 && nFilePathLen < 1024)
         {
           // const wchar_t* sFilePath = rf->wszFile;
           var sFilePath = AkelPad.MemRead(_PtrAdd(lpRf, _X64 ? 16 : 8), DT_UNICODE, nFilePathLen);
@@ -1737,13 +1740,16 @@ function getRecentFiles()
             recentFiles.push(sFilePath);
           }
         }
+        else
+        {
+          WScript.Echo("Unexpected: nFilePathLen = " + nFilePathLen);
+        }
 
         // rf = rf->next;
         lpRf = AkelPad.MemRead(lpRf, _X64 ? DT_QWORD : DT_DWORD);
       }
     }
-
-    AkelPad.MemFree(lpRfS);
+    AkelPad.MemFree(lplpRfS);
   }
 
   oState.isRecentFilesLoaded = true;
