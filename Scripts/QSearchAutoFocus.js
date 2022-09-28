@@ -45,7 +45,8 @@ function MainCallback(hWnd, uMsg, wParam, lParam)
     AkelPad.Call("QSearch::QSearch");
     AkelPad.SendMessage(hWndMain, 0x0111 /*WM_COMMAND*/, 0, 0); // "empty" command to update the Toolbar
   }
-  else if (uMsg == AKD_JS_SCRIPT_STOP && wParam == UNIQUE_QS_ID)
+  else if ((uMsg == 0x406 /*AKDN_MAIN_ONFINISH*/)
+        || (uMsg == AKD_JS_SCRIPT_STOP && wParam == UNIQUE_QS_ID))
   {
     oSys.Call("user32::PostQuitMessage", 0); // exit the message loop
   }
