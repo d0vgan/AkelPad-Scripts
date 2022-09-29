@@ -15,5 +15,6 @@ Collection of scripts for AkelPad text editor
 **QSearchAutoFocus.js** - Example of a resident script. [The QSearch plugin has its own option "Window: QSearch auto-focus (on file open)", so it does not need this script].  
 **RunMe.js** - Executes the current file in predefined external program.  
 **RunMe_Usage_Rus.txt** - Manual for the RunMe.js, in Russian.  
+**SettingsByFileExt.js** - Example of a resident script that applies certain settings for certain file extensions.  
 **UpdateAkelUpdater.js** - Updates the AkelUpdater.exe.  
 **ZipCurrentFile.js** - Packs the current file into a zip-archive.  
