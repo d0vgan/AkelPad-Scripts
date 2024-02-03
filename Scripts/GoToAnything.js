@@ -27,6 +27,8 @@ Keys:
   F1       - help
   F3       - find next (down), works with @text and #text
   Shift+F3 - find previous (up), works with @text and #text
+  F4       - preview the selected file (when auto-preview is off)
+  Shift+F4 - auto-preview toggle (on/off)
   Alt+A    - select window / manage the currently opened files
   Alt+F    - edit the Favourites ("GoToAnything.fav")
   Alt+H    - manage the Recent Files History (calling RecentFiles::Manage)
