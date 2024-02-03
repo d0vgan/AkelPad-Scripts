@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.6.1
+// Version: 0.7 alpha
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -668,7 +668,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         var crChar;
         var hBrushBk;
         var nModeBkOld;
-        var itemHeight;
+        //var itemHeight;
         var nCharWidth = 0;
         //var nCharHeight = 0;
         var x;
@@ -678,19 +678,21 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         //var hFontLB = AkelPad.SendMessage(hWndFilesList, WM_GETFONT, 0, 0);
         var filter = oState.sLastFullFilter;
         var match = oFileListItems[itemID][0];
+        var matchType = 0;
+        var matchIdx = 0;
         var text = oFileListItems[itemID][2];
         var itemAction = AkelPad.MemRead(_PtrAdd(lpDIS, 12), DT_DWORD); // lpDIS->itemAction
         var itemState = AkelPad.MemRead(_PtrAdd(lpDIS, 16), DT_DWORD); // lpDIS->itemState
         var hDC = AkelPad.MemRead(_PtrAdd(lpDIS, _X64 ? 32 : 24), DT_QWORD);
         var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
         var rcItem = RectToArray(lpRC);
-        var lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+        //var lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
         var lpSize = AkelPad.MemAlloc(16); // sizeof(SIZE)
 
         //oSys.Call("gdi32::SelectObject", hDC, hFontLB);
-        oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
-        itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
-        AkelPad.MemFree(lpTM);
+        //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
+        //itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
+        //AkelPad.MemFree(lpTM);
 
         if ((itemAction & ODA_SELECT) && (itemState & ODS_SELECTED))
         {
@@ -735,39 +737,61 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
           }
         }
 
+        if (match != undefined && typeof(match) == "string")
+        {
+          c = match.substr(0, 2);
+          if (c == "e1") // exact name match
+          {
+            matchType = 1;
+            matchIdx = text.lastIndexOf("\\");
+            matchIdx += parseInt(match.substr(2), 10);
+          }
+          else if (c == "e2") // exact pathname match
+          {
+            matchType = 2;
+            matchIdx = parseInt(match.substr(2), 10);
+          }
+          else if (c == "p1") // partial name match
+          {
+            matchType = 3;
+            matchIdx = text.lastIndexOf("\\");
+          }
+          else if (c == "p2") // partial pathname match
+          {
+            matchType = 4;
+          }
+        }
+
         for (i = 0; i < text.length; i++)
         {
           crChar = crText;
-          if (typeof(match) == "string")
+          switch (matchType)
           {
-            c = match.substr(0, 2);
-            if (c == "e1") // exact name match
-            {
-              c = text.lastIndexOf("\\");
-              c += parseInt(match.substr(2));
-              if (i > c && i < c + filter.length + 1)
-                crChar = crTextMatch;
-            }
-            else if (c == "e2") // exact pathname match
-            {
-              c = parseInt(match.substr(2));
-              if (i >= c && i < c + filter.length)
-                crChar = crTextMatch;
-            }
-            else if (c == "p1") // partial name match
-            {
-              c = text.lastIndexOf("\\");
-              if (i > c && i + 1 - c < match.length)
+            case 1: // exact name match
+              if (i > matchIdx && i < matchIdx + filter.length + 1)
               {
-                if (match.substr(i + 1 - c, 1) == "v")
+                crChar = crTextMatch;
+              }
+              break;
+            case 2: // exact pathname match
+              if (i >= matchIdx && i < matchIdx + filter.length)
+              {
+                crChar = crTextMatch;
+              }
+              break;
+            case 3: // partial name match
+              if (i > matchIdx && i + 1 - matchIdx < match.length)
+              {
+                if (match.substr(i + 1 - matchIdx, 1) == "v")
                   crChar = crTextMatch;
               }
-            }
-            else if (c == "p2") // partial pathname match
-            {
+              break;
+            case 4: // partial pathname match
               if (i + 2 < match.length && match.substr(i + 2, 1) == "v")
+              {
                 crChar = crTextMatch;
-            }
+              }
+              break;
           }
           oSys.Call("gdi32::SetTextColor", hDC, crChar);
           c = text.substr(i, 1);
