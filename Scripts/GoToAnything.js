@@ -64,12 +64,14 @@ var Options = {
   OpaquePercent : 80, // applies when IsTransparent is `true`
   SaveDlgPosSize : true, // whether to save the popup dialog position and size
   SaveLastFilter : false, // experimental: whether to save the last filter
+  SaveAutoPreview : true, // whether to save the AutoPreviewSelectedFile value
   PathDepth : 4, // path depth of items in the file list
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
   FoldersInFavourites : false, // experimental: folders in Favourites
   ShowItemPrefixes : true,  // whether to show the [A], [F] and [H] prefixes
-  IsTextSearchFuzzy : true // when true, @text also matches "toexact" and "theexit"
+  IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
+  AutoPreviewSelectedFile : true // when true, the selected file is automatically previewed
 }
 
 //Help Text
@@ -94,6 +96,8 @@ Keys:\n \
   F1\t- this help\n \
   F3\t- find next (down), works with " + Options.Char_GoToText1 + "text and " + Options.Char_GoToText2 + "text\n \
   Shift+F3 - find previous (up), works with " + Options.Char_GoToText1 + "text and " + Options.Char_GoToText2 + "text\n \
+  F4\t- preview the selected file (when auto-preview is off)\n \
+  Shift+F4 - auto-preview toggle (on/off)\n \
   Alt+A\t- select window / manage the currently opened files\n \
   Alt+F\t- edit the Favourites (\"GoToAnything.fav\")\n \
   Alt+H\t- manage the Recent Files History (RecentFiles::Manage)";
@@ -118,6 +122,8 @@ var VK_DOWN     = 0x28;
 var VK_DELETE   = 0x2E;
 var VK_F1       = 0x70;
 var VK_F3       = 0x72;
+var VK_F4       = 0x73;
+var VK_F6       = 0x75;
 var HWND_DESKTOP = 0;
 var SW_HIDE    = 0;
 var SW_SHOWNA  = 8;
@@ -194,6 +200,7 @@ var ODA_FOCUS      = 0x0004;
 
 // Owner draw state
 var ODS_SELECTED = 0x0001;
+var ODS_DEFAULT = 0x0020;
 
 //AkelPad Constants: AkelPad.MemRead
 var DT_ANSI = 0;
@@ -390,7 +397,7 @@ function runScript()
   var rectEditWnd = GetWindowRect(hWndEdit);
   var x = rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2);
   var y = rectEditWnd.Y + 10;
-  if (Options.SaveDlgPosSize || Options.SaveLastFilter)
+  if (Options.SaveDlgPosSize || Options.SaveLastFilter || Options.SaveAutoPreview)
   {
     oInitialSettings = loadSettings();
 
@@ -418,6 +425,11 @@ function runScript()
       oState.sLastFullFilter = oInitialSettings.Filter;
     else
       oInitialSettings.Filter = oState.sLastFullFilter;
+
+    if (oInitialSettings.AutoPreview != undefined)
+      Options.AutoPreviewSelectedFile = oInitialSettings.AutoPreview;
+    else
+      oInitialSettings.AutoPreview = Options.AutoPreviewSelectedFile;
   }
 
   hWndScriptDlg = oSys.Call("user32::CreateWindowEx" + _TCHAR,
@@ -556,7 +568,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       AkelPad.SendMessage(hWndFilterEdit, EM_SETSEL, 0, -1);
       oState.sLastPartialFilter = undefined;
       ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0)
-      FilesList_ActivateSelectedItem(hWndFilesList);
+      if (Options.AutoPreviewSelectedFile)
+      {
+        FilesList_ActivateSelectedItem(hWndFilesList);
+      }
     }
     else
       FilesList_Fill(hWndFilesList, undefined);
@@ -579,6 +594,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     else if (wParam == VK_RETURN)
     {
       oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
+      if (!Options.AutoPreviewSelectedFile)
+      {
+        FilesList_ActivateSelectedItem(hWndFilesList);
+      }
       oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
     }
     //else if (wParam == VK_F1)
@@ -607,6 +626,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (LOWORD(wParam) == IDC_LB_ITEMS)
       {
         oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
+        if (!Options.AutoPreviewSelectedFile)
+        {
+          FilesList_ActivateSelectedItem(hWndFilesList);
+        }
         oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
       }
     }
@@ -694,7 +717,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         //itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
         //AkelPad.MemFree(lpTM);
 
-        if ((itemAction & ODA_SELECT) && (itemState & ODS_SELECTED))
+        if (itemState & ODS_SELECTED)
         {
           crText = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHTTEXT);
           crBk = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHT);
@@ -724,12 +747,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
         if (filter != undefined && typeof(filter) == "string")
         {
-          c = filter.lastIndexOf("@");
+          c = filter.lastIndexOf(Options.Char_GoToText1);
           if (c == -1)
           {
-            c = filter.lastIndexOf("#");
+            c = filter.lastIndexOf(Options.Char_GoToText2);
             if (c == -1)
-              c = filter.lastIndexOf(":");
+              c = filter.lastIndexOf(Options.Char_GoToLine);
           }
           if (c != -1)
           {
@@ -849,7 +872,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
   else if (uMsg == WM_CLOSE)
   {
-    if (Options.SaveDlgPosSize || Options.SaveLastFilter)
+    if (Options.SaveDlgPosSize || Options.SaveLastFilter || Options.SaveAutoPreview)
     {
       var oNewSettings = createEmptySettingsObject();
       if (Options.SaveDlgPosSize)
@@ -868,6 +891,14 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       {
         if (oInitialSettings == undefined || oInitialSettings.Filter != oState.sLastFullFilter)
           oNewSettings.Filter = oState.sLastFullFilter;
+      }
+      if (Options.SaveAutoPreview)
+      {
+        if (oInitialSettings == undefined ||
+            oInitialSettings.AutoPreview != Options.AutoPreviewSelectedFile)
+        {
+          oNewSettings.AutoPreview = Options.AutoPreviewSelectedFile;
+        }
       }
       saveSettings(oNewSettings);
     }
@@ -940,6 +971,21 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         AkelPad.WindowNoNextProc(hSubclassFilterEdit);
         return 0;
       }
+    }
+    else if (wParam == VK_F4)
+    {
+      if (!IsCtrlPressed())
+      {
+        if (!Options.AutoPreviewSelectedFile)
+        {
+          FilesList_ActivateSelectedItem(hWndFilesList);
+        }
+        if (IsShiftPressed())
+        {
+          Options.AutoPreviewSelectedFile = !Options.AutoPreviewSelectedFile;
+        }
+      }
+      return 0;
     }
   }
   else if (uMsg == WM_KEYUP)
@@ -1018,7 +1064,10 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
         wParam == VK_HOME || wParam == VK_END)
     {
       AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
-      FilesList_ActivateSelectedItem(hWnd);
+      if (Options.AutoPreviewSelectedFile)
+      {
+        FilesList_ActivateSelectedItem(hWnd);
+      }
       AkelPad.WindowNoNextProc(hSubclassFilesList);
       return 0;
     }
@@ -1059,7 +1108,10 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   else if (uMsg == WM_LBUTTONDOWN)
   {
     AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
-    FilesList_ActivateSelectedItem(hWnd);
+    if (Options.AutoPreviewSelectedFile)
+    {
+      FilesList_ActivateSelectedItem(hWnd);
+    }
     AkelPad.WindowNoNextProc(hSubclassFilesList);
     return 0;
   }
@@ -1349,7 +1401,10 @@ function FilesList_Fill(hListWnd, sFilter)
   if (matches.length > 0)
   {
     FilesList_SetCurSel(hListWnd, 0);
-    FilesList_ActivateSelectedItem(hListWnd);
+    if (Options.AutoPreviewSelectedFile)
+    {
+      FilesList_ActivateSelectedItem(hListWnd);
+    }
   }
 }
 
@@ -1978,6 +2033,7 @@ function createEmptySettingsObject()
   oSettings.Dlg.W = undefined;
   oSettings.Dlg.H = undefined;
   oSettings.Filter = undefined;
+  oSettings.AutoPreview = undefined;
   return oSettings;
 }
 
@@ -1985,7 +2041,8 @@ function isSettingsObjectEmpty(oSettings)
 {
   if (oSettings != undefined)
   {
-    if (oSettings.Filter != undefined)
+    if (oSettings.Filter != undefined ||
+        oSettings.AutoPreview != undefined)
       return false;
 
     if (oSettings.Dlg != undefined)
@@ -2010,6 +2067,16 @@ function readStrSetting(oSet, name)
   return oSet.Read(name, PO_STRING);
 }
 
+function readBoolSetting(oSet, name)
+{
+  var s = oSet.Read(name, PO_STRING);
+  if (s == "true")
+    return true;
+  if (s == "false")
+    return false;
+  return undefined;
+}
+
 function loadSettings()
 {
   var oSettings = createEmptySettingsObject();
@@ -2026,6 +2093,10 @@ function loadSettings()
     if (Options.SaveLastFilter)
     {
       oSettings.Filter = readStrSetting(oSet, "Filter");
+    }
+    if (Options.SaveAutoPreview)
+    {
+      oSettings.AutoPreview = readBoolSetting(oSet, "AutoPreview");
     }
     oSet.End();
   }
@@ -2055,6 +2126,10 @@ function saveSettings(oSettings)
     if (oSettings.Filter != undefined)
     {
       oSet.Write("Filter", PO_STRING, oSettings.Filter);
+    }
+    if (oSettings.AutoPreview != undefined)
+    {
+      oSet.Write("AutoPreview", PO_STRING, oSettings.AutoPreview ? "true" : "false");
     }
     oSet.End();
   }
