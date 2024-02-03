@@ -123,7 +123,10 @@ var SW_HIDE    = 0;
 var SW_SHOWNA  = 8;
 var SW_RESTORE = 9;
 var DEFAULT_GUI_FONT = 17;
-var COLOR_WINDOW = 5;
+var COLOR_WINDOW        = 5;
+var COLOR_WINDOWTEXT    = 8;
+var COLOR_HIGHLIGHT     = 13;
+var COLOR_HIGHLIGHTTEXT = 14;
 var MB_OK = 0x00000;
 
 //Windows Messages
@@ -134,6 +137,8 @@ var WM_ACTIVATE        = 0x0006;
 var WM_SETFOCUS        = 0x0007;
 var WM_SETREDRAW       = 0x000B;
 var WM_CLOSE           = 0x0010;
+var WM_DRAWITEM        = 0x002B;
+var WM_MEASUREITEM     = 0x002C;
 var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
@@ -174,12 +179,21 @@ var WS_CAPTION = 0x00C00000;
 var WS_VISIBLE = 0x10000000;
 var WS_CHILD   = 0x40000000;
 var WS_POPUP   = 0x80000000;
-var WS_EX_CONTEXTHELP = 0x00000400;
-var WS_EX_LAYERED     = 0x00080000;
-var ES_AUTOHSCROLL  = 0x0080;
-var LBS_NOTIFY      = 0x0001;
-var LBS_SORT        = 0x0002;
-var LBS_USETABSTOPS = 0x0080;
+var WS_EX_CONTEXTHELP  = 0x00000400;
+var WS_EX_LAYERED      = 0x00080000;
+var ES_AUTOHSCROLL     = 0x0080;
+var LBS_NOTIFY         = 0x0001;
+var LBS_SORT           = 0x0002;
+var LBS_OWNERDRAWFIXED = 0x0010;
+var LBS_USETABSTOPS    = 0x0080;
+
+// Owner draw actions
+var ODA_DRAWENTIRE = 0x0001;
+var ODA_SELECT     = 0x0002;
+var ODA_FOCUS      = 0x0004;
+
+// Owner draw state
+var ODS_SELECTED = 0x0001;
 
 //AkelPad Constants: AkelPad.MemRead
 var DT_ANSI = 0;
@@ -255,6 +269,7 @@ var sScriptName = "Go To Anything";
 var hWndScriptDlg;
 var hWndFilterEdit;
 var hWndFilesList;
+var oFileListItems = [];
 var hSubclassFilterEdit;
 var hSubclassFilesList;
 var nTextColorRGB = -1;
@@ -365,7 +380,7 @@ function runScript()
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
   aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight]);
-  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
+  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY|LBS_OWNERDRAWFIXED;
   aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+6, -1, -1]);
 
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
@@ -493,7 +508,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
   {
     var i;
     var W, H;
-    var rectClient, rectWnd, rectLB, rectLV;
+    var rectClient, rectWnd, rectLB;
 
     rectClient = GetClientRect(hWnd);
     rectWnd = GetWindowRect(hWnd);
@@ -613,6 +628,163 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       oState.nActiveFrameSelStart = AkelPad.GetSelStart();
       oState.nActiveFrameSelEnd = AkelPad.GetSelEnd();
       oState.nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(AkelPad.GetEditWnd());
+    }
+  }
+
+  else if (uMsg == WM_MEASUREITEM)
+  {
+    var lpMIS = lParam; // LPMEASUREITEMSTRUCT lpMIS = (LPMEASUREITEMSTRUCT)lParam;
+    if (AkelPad.MemRead(_PtrAdd(lpMIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpMIS->CtlID
+    {
+      var itemHeight = 20; // default
+      var hFontLB = AkelPad.SendMessage(hWndFilesList, WM_GETFONT, 0, 0);
+      if (hFontLB)
+      {
+        var lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+        var hDC = oSys.Call("user32::GetDC", hWnd);
+        oSys.Call("gdi32::SelectObject", hDC, hFontLB);
+        oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
+        itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
+        itemHeight += 4; // Adjust for spacing as needed
+        oSys.Call("User32::ReleaseDC", hWnd, hDC);
+        AkelPad.MemFree(lpTM);
+      }
+      AkelPad.MemCopy(_PtrAdd(lpMIS, 16), itemHeight, DT_DWORD); // lpMIS->itemHeight = itemHeight;
+      return 1;
+    }
+  }
+
+  else if (uMsg == WM_DRAWITEM)
+  {
+    var lpDIS = lParam; // LPDRAWITEMSTRUCT lpdis = (LPDRAWITEMSTRUCT)lParam;
+    if (AkelPad.MemRead(_PtrAdd(lpDIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpDIS->CtlID
+    {
+      var itemID = AkelPad.MemRead(_PtrAdd(lpDIS, 8), DT_DWORD); // lpDIS->itemID
+      if (itemID != -1 && itemID != 0xFFFFFFFF)
+      {
+        var crTextMatch = 0x000000FF;
+        var crText;
+        var crBk;
+        var crChar;
+        var hBrushBk;
+        var nModeBkOld;
+        var itemHeight;
+        var nCharWidth = 0;
+        //var nCharHeight = 0;
+        var x;
+        var y;
+        var i;
+        var c;
+        //var hFontLB = AkelPad.SendMessage(hWndFilesList, WM_GETFONT, 0, 0);
+        var filter = oState.sLastFullFilter;
+        var match = oFileListItems[itemID][0];
+        var text = oFileListItems[itemID][2];
+        var itemAction = AkelPad.MemRead(_PtrAdd(lpDIS, 12), DT_DWORD); // lpDIS->itemAction
+        var itemState = AkelPad.MemRead(_PtrAdd(lpDIS, 16), DT_DWORD); // lpDIS->itemState
+        var hDC = AkelPad.MemRead(_PtrAdd(lpDIS, _X64 ? 32 : 24), DT_QWORD);
+        var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
+        var rcItem = RectToArray(lpRC);
+        var lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+        var lpSize = AkelPad.MemAlloc(16); // sizeof(SIZE)
+
+        //oSys.Call("gdi32::SelectObject", hDC, hFontLB);
+        oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
+        itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
+        AkelPad.MemFree(lpTM);
+
+        if ((itemAction & ODA_SELECT) && (itemState & ODS_SELECTED))
+        {
+          crText = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHTTEXT);
+          crBk = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHT);
+          hBrushBk = oSys.Call("user32::GetSysColorBrush", COLOR_HIGHLIGHT);
+        }
+        else
+        {
+          if (isApplyingColorTheme())
+          {
+            crText = nTextColorRGB;
+            crBk = nBkColorRGB;
+            hBrushBk = hBkColorBrush;
+          }
+          else
+          {
+            crText = oSys.Call("user32::GetSysColor", COLOR_WINDOWTEXT);
+            crBk = oSys.Call("user32::GetSysColor", COLOR_WINDOW);
+            hBrushBk = oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+          }
+        }
+        oSys.Call("user32::FillRect", hDC, lpRC, hBrushBk);
+        nModeBkOld = oSys.Call("gdi32::SetBkMode", hDC, 1 /*TRANSPARENT*/);
+
+        oSys.Call("gdi32::SetBkColor", hDC, crBk);
+        x = rcItem.left + 5;
+        y = rcItem.top + 3; //(rcItem.bottom + rcItem.top - itemHeight)/2;
+
+        if (filter != undefined && typeof(filter) == "string")
+        {
+          c = filter.lastIndexOf("@");
+          if (c == -1)
+          {
+            c = filter.lastIndexOf("#");
+            if (c == -1)
+              c = filter.lastIndexOf(":");
+          }
+          if (c != -1)
+          {
+            filter = filter.substr(0, c);
+          }
+        }
+
+        for (i = 0; i < text.length; i++)
+        {
+          crChar = crText;
+          if (typeof(match) == "string")
+          {
+            c = match.substr(0, 2);
+            if (c == "e1") // exact name match
+            {
+              c = text.lastIndexOf("\\");
+              c += parseInt(match.substr(2));
+              if (i > c && i < c + filter.length + 1)
+                crChar = crTextMatch;
+            }
+            else if (c == "e2") // exact pathname match
+            {
+              c = parseInt(match.substr(2));
+              if (i >= c && i < c + filter.length)
+                crChar = crTextMatch;
+            }
+            else if (c == "p1") // partial name match
+            {
+              c = text.lastIndexOf("\\");
+              if (i > c && i + 1 - c < match.length)
+              {
+                if (match.substr(i + 1 - c, 1) == "v")
+                  crChar = crTextMatch;
+              }
+            }
+            else if (c == "p2") // partial pathname match
+            {
+              if (i + 2 < match.length && match.substr(i + 2, 1) == "v")
+                crChar = crTextMatch;
+            }
+          }
+          oSys.Call("gdi32::SetTextColor", hDC, crChar);
+          c = text.substr(i, 1);
+          oSys.Call("gdi32::TextOut" + _TCHAR, hDC, x, y, c, 1);
+          if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, lpSize))
+          {
+            nCharWidth = AkelPad.MemRead(_PtrAdd(lpSize, 0), DT_DWORD);
+            //nCharHeight = AkelPad.MemRead(_PtrAdd(lpSize, 4), DT_DWORD);
+          }
+          x += nCharWidth;
+        }
+        AkelPad.MemFree(lpSize);
+        oSys.Call("gdi32::SetTextColor", hDC, crText);
+        oSys.Call("gdi32::SetBkMode", hDC, nModeBkOld);
+
+        return 1;
+      }
     }
   }
 
@@ -1136,8 +1308,15 @@ function FilesList_Fill(hListWnd, sFilter)
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, FALSE, 0);
   FilesList_Clear(hListWnd);
 
+  oFileListItems = [];
+
   for (i = 0; i < matches.length; i++)
   {
+    var m = [];
+    m.push(matches[i][0]); // match (see MatchFilter)
+    m.push(matches[i][1]); // fileIdx
+    m.push(fnames[matches[i][2]]); // fileName
+    oFileListItems.push(m);
     FilesList_AddItem(hListWnd, fnames[matches[i][2]], matches[i][1]);
   }
 
@@ -1476,6 +1655,16 @@ function IsCtrlPressed()
 function IsShiftPressed()
 {
   return oSys.Call("user32::GetKeyState", VK_SHIFT) & 0x8000;
+}
+
+function RectToArray(lpRect)
+{
+  var rcRect = [];
+  rcRect.left = AkelPad.MemRead(_PtrAdd(lpRect, 0), DT_DWORD);
+  rcRect.top = AkelPad.MemRead(_PtrAdd(lpRect, 4), DT_DWORD);
+  rcRect.right = AkelPad.MemRead(_PtrAdd(lpRect, 8), DT_DWORD);
+  rcRect.bottom = AkelPad.MemRead(_PtrAdd(lpRect, 12), DT_DWORD);
+  return rcRect;
 }
 
 function getEnvVar(varName)
