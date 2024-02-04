@@ -29,6 +29,8 @@ Keys:
   Shift+F3 - find previous (up), works with @text and #text
   F4       - preview the selected file (when auto-preview is off)
   Shift+F4 - auto-preview toggle (on/off)
+  Ctrl+Q   - preview the selected file (when auto-preview is off)
+  Ctrl+Shift+Q - auto-preview toggle (on/off)
   Alt+A    - select window / manage the currently opened files
   Alt+F    - edit the Favourites ("GoToAnything.fav")
   Alt+H    - manage the Recent Files History (calling RecentFiles::Manage)
@@ -73,7 +75,8 @@ var Options = {
   FoldersInFavourites : false, // experimental: folders in Favourites
   ShowItemPrefixes : true,  // whether to show the [A], [F] and [H] prefixes
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
-  AutoPreviewSelectedFile : true // when true, the selected file is automatically previewed
+  AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
+  TextMatchColor : 0x0020FF // color of the matching parts of file names: 0xBBGGRR
 }
 
 //Help Text
@@ -100,6 +103,8 @@ Keys:\n \
   Shift+F3 - find previous (up), works with " + Options.Char_GoToText1 + "text and " + Options.Char_GoToText2 + "text\n \
   F4\t- preview the selected file (when auto-preview is off)\n \
   Shift+F4 - auto-preview toggle (on/off)\n \
+  Ctrl+Q\t- preview the selected file (when auto-preview is off)\n \
+  Ctrl+Shift+Q - auto-preview toggle (on/off)\n \
   Alt+A\t- select window / manage the currently opened files\n \
   Alt+F\t- edit the Favourites (\"GoToAnything.fav\")\n \
   Alt+H\t- manage the Recent Files History (RecentFiles::Manage)";
@@ -687,7 +692,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       var itemID = AkelPad.MemRead(_PtrAdd(lpDIS, 8), DT_DWORD); // lpDIS->itemID
       if (itemID != -1 && itemID != 0xFFFFFFFF)
       {
-        var crTextMatch = 0x000000FF;
+        var crTextMatch = Options.TextMatchColor;
         var crText;
         var crBk;
         var crChar;
@@ -989,6 +994,21 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       }
       return 0;
     }
+    else if (wParam == 0x51) // Q
+    {
+      if (IsCtrlPressed())
+      {
+        if (!Options.AutoPreviewSelectedFile)
+        {
+          FilesList_ActivateSelectedItem(hWndFilesList);
+        }
+        if (IsShiftPressed())
+        {
+          Options.AutoPreviewSelectedFile = !Options.AutoPreviewSelectedFile;
+        }
+        return 0;
+      }
+    }
   }
   else if (uMsg == WM_KEYUP)
   {
@@ -1004,7 +1024,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
   }
   else if (uMsg == WM_CHAR)
   {
-    if ((wParam == 0x7F) && IsCtrlPressed()) // 0x7F is Ctrl+Backspace. Why? Ask M$
+    if ((wParam == 0x7F || wParam == 0x11) && IsCtrlPressed()) // 0x7F is Ctrl+Backspace. 0x11 is Ctrl+Q. Why? Ask M$
     {
       // do nothing
     }
