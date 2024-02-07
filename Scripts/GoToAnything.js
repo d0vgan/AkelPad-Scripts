@@ -81,7 +81,7 @@ var Options = {
   DirFilesMaxDepth : 4, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
   MaxDirFiles : 5000, // max number of [D] files, handling 5000 items is already slow...
   ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
-  ShowNumberOfItemsInTitle : false, // whether to add " [filtered/total]" to the title
+  ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
   AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
   TextMatchColor : 0x0040FF // color of the matching parts of file names: 0xBBGGRR
@@ -339,6 +339,7 @@ function createState()
   s.sLastPartialFilter = "";
   s.AkelPadFrames = [];
   s.DirectoryFiles = [];
+  s.LastStartDir = "";
   s.AkelPadFavourites = [];
   s.AkelPadRecentFiles = [];
   s.lpInitialFrame = getCurrentFrame();
@@ -1138,7 +1139,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         }
         while (!oFSO.FolderExists(dir));
 
-        if (dir != undefined && dir != startDirResult.dir)
+        if (dir != undefined)
         {
           if (dir == "")
           {
@@ -1146,19 +1147,26 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
             if (!startDirResult.fromCurrDir)
             {
               Options.StartDir = dir;
+            }
+            if (getStartDir().dir != oState.LastStartDir)
+            {
               oState.isDirectoryFilesLoaded = false;
               oState.DirectoryFiles = [];
               FilesList_Fill(hWndFilesList, undefined);
               SetWndText(hWndFilterEdit, "");
             }
           }
-          else if (dir != startDirResult.dir)
+          else
           {
             Options.StartDir = dir;
-            oState.isDirectoryFilesLoaded = false;
-            oState.DirectoryFiles = [];
-            FilesList_Fill(hWndFilesList, undefined);
-            SetWndText(hWndFilterEdit, "");
+            if (dir != oState.LastStartDir)
+            {
+              Options.StartDir = dir;
+              oState.isDirectoryFilesLoaded = false;
+              oState.DirectoryFiles = [];
+              FilesList_Fill(hWndFilesList, undefined);
+              SetWndText(hWndFilterEdit, "");
+            }
           }
         }
 
@@ -1432,21 +1440,20 @@ function FilesList_AddItem(hListWnd, fileName)
 function FilesList_Fill(hListWnd, sFilter)
 {
   var i;
-  var n;
   var fpath;
   var item;
+  var totalItems = 0;
   var matches = [];
   var activeFilePaths = [];
-  var fnames = [];
 
-  function matches_add_if_match(offset, idx, fname)
+  function matches_add_if_match(offset, fname)
   {
     if (sFilter == undefined || sFilter == "")
     {
       var m = [];
-      m.push(offset);
-      m.push(offset);
-      m.push(idx);
+      m.push(offset);  // match=offset
+      m.push(offset);  // offset
+      m.push(fname);   // name
       matches.push(m);
     }
     else
@@ -1455,9 +1462,9 @@ function FilesList_Fill(hListWnd, sFilter)
       if (mf != "")
       {
         var m = [];
-        m.push(mf);
-        m.push(offset);
-        m.push(idx);
+        m.push(mf);      // match
+        m.push(offset);  // offset
+        m.push(fname);   // name
         matches.push(m);
       }
     }
@@ -1474,9 +1481,8 @@ function FilesList_Fill(hListWnd, sFilter)
       item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[A] " + item;
-      fnames.push(item);
-      n = fnames.length - 1;
-      matches_add_if_match(Consts.nFramesOffset + i, n, item);
+      matches_add_if_match(Consts.nFramesOffset + i, item);
+      ++totalItems;
     }
   }
 
@@ -1490,9 +1496,8 @@ function FilesList_Fill(hListWnd, sFilter)
       item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[D] " + item;
-      fnames.push(item);
-      n = fnames.length - 1;
-      matches_add_if_match(Consts.nDirFilesOffset + i, n, item);
+      matches_add_if_match(Consts.nDirFilesOffset + i, item);
+      ++totalItems;
     }
   }
 
@@ -1506,9 +1511,8 @@ function FilesList_Fill(hListWnd, sFilter)
       item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[F] " + item;
-      fnames.push(item);
-      n = fnames.length - 1;
-      matches_add_if_match(Consts.nFavouritesOffset + i, n, item);
+      matches_add_if_match(Consts.nFavouritesOffset + i, item);
+      ++totalItems;
     }
   }
 
@@ -1523,9 +1527,8 @@ function FilesList_Fill(hListWnd, sFilter)
       item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[H] " + item;
-      fnames.push(item);
-      n = fnames.length - 1;
-      matches_add_if_match(Consts.nRecentFilesOffset + i, n, item);
+      matches_add_if_match(Consts.nRecentFilesOffset + i, item);
+      ++totalItems;
     }
   }
 
@@ -1534,21 +1537,16 @@ function FilesList_Fill(hListWnd, sFilter)
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, FALSE, 0);
   FilesList_Clear(hListWnd);
 
-  oFileListItems = [];
+  oFileListItems = matches; // [0] - match, [1] - offset, [2] - name
 
-  for (i = 0; i < matches.length; i++)
+  for (i = 0; i < oFileListItems.length; i++)
   {
-    var m = [];
-    m.push(matches[i][0]); // match (see MatchFilter)
-    m.push(matches[i][1]); // fileIdx
-    m.push(fnames[matches[i][2]]); // fileName
-    oFileListItems.push(m);
-    FilesList_AddItem(hListWnd, fnames[matches[i][2]]);
+    FilesList_AddItem(hListWnd, oFileListItems[i][2]);
   }
 
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, TRUE, 0);
 
-  if (matches.length > 0)
+  if (oFileListItems.length > 0)
   {
     FilesList_SetCurSel(hListWnd, 0);
     if (Options.AutoPreviewSelectedFile)
@@ -1559,7 +1557,7 @@ function FilesList_Fill(hListWnd, sFilter)
 
   if (Options.ShowNumberOfItemsInTitle)
   {
-    var title = sScriptName + "  [" + matches.length + "/" + fnames.length + "]";
+    var title = sScriptName + "  [" + oFileListItems.length + "/" + totalItems + "]";
     var hDlg = oSys.Call("user32::GetParent", hListWnd);
     SetWndText(hDlg, title);
   }
@@ -1709,9 +1707,15 @@ function FilesList_ActivateSelectedItem(hListWnd)
 
 function compareByMatch(m1, m2)
 {
+  // first, comparing by match
   if (m1[0] < m2[0])
     return -1;
   if (m1[0] > m2[0])
+    return 1;
+  // next, comparing by name
+  if (m1[2] < m2[2])
+    return -1;
+  if (m1[2] > m2[2])
     return 1;
   return 0;
 }
@@ -2160,6 +2164,7 @@ function getDirectoryFiles()
 
   if (startDir == "")
   {
+    oState.LastStartDir = startDir;
     oState.isDirectoryFilesLoaded = true;
     return directoryFiles;
   }
@@ -2203,6 +2208,7 @@ function getDirectoryFiles()
   }
 
   //WScript.Echo("Number of files: " + directoryFiles.length);
+  oState.LastStartDir = startDir;
   oState.isDirectoryFilesLoaded = true;
   return directoryFiles;
 }
