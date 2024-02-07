@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.7 alpha
+// Version: 0.7 beta
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -32,6 +32,7 @@ Keys:
   Ctrl+Q   - preview the selected file (when auto-preview is off)
   Ctrl+Shift+Q - auto-preview toggle (on/off)
   Alt+A    - select window / manage the currently opened files
+  Alt+D    - select the start (project) directory
   Alt+F    - edit the Favourites ("GoToAnything.fav")
   Alt+H    - manage the Recent Files History (calling RecentFiles::Manage)
 
@@ -70,12 +71,14 @@ var Options = {
   SaveDlgPosSize : true, // whether to save the popup dialog position and size
   SaveLastFilter : false, // experimental: whether to save the last filter
   SaveAutoPreview : true, // whether to save the AutoPreviewSelectedFile value
+  SaveStartDir : true, // save the start (project) directory
   PathDepth : 4, // path depth of items in the file list
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
   FoldersInFavourites : false, // experimental: folders in Favourites
+  StartDir : "", // start (project) directory for [D] files, "" - current directory
   DirFilesStartLevel : 0, // show [D] files from: -1 - none, 0 - current dir, 1 - upper dir, ...
-  DirFilesMaxDepth : 6, // max directory depth of [D] files: 0 - only current dir
+  DirFilesMaxDepth : 6, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
   MaxDirFiles : 5000, // max number of [D] files, handling 5000 items is already slow...
   ShowItemPrefixes : true,  // whether to show the [A], [D], [F] and [H] prefixes
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
@@ -110,6 +113,7 @@ Keys:\n \
   Ctrl+Q\t- preview the selected file (when auto-preview is off)\n \
   Ctrl+Shift+Q - auto-preview toggle (on/off)\n \
   Alt+A\t- select window / manage the currently opened files\n \
+  Alt+D\t- select the start (project) directory\n \
   Alt+F\t- edit the Favourites (\"GoToAnything.fav\")\n \
   Alt+H\t- manage the Recent Files History (RecentFiles::Manage)";
 
@@ -164,6 +168,7 @@ var WM_KEYDOWN         = 0x0100;
 var WM_KEYUP           = 0x0101;
 var WM_CHAR            = 0x0102;
 var WM_SYSKEYDOWN      = 0x0104;
+var WM_SYSKEYUP        = 0x0105;
 var WM_SYSCHAR         = 0x0106;
 var WM_COMMAND         = 0x0111;
 var WM_CTLCOLOREDIT    = 0x0133;
@@ -351,7 +356,7 @@ function createState()
   s.isDirectoryFilesLoaded = false;
   s.isFavouritesLoaded = false;
   s.isRecentFilesLoaded = false;
-  s.isHelpJustShown = false;
+  s.isIgnoringEscKeyUp = false;
   return s;
 }
 
@@ -432,7 +437,10 @@ function runScript()
   var rectEditWnd = GetWindowRect(hWndEdit);
   var x = rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2);
   var y = rectEditWnd.Y + 10;
-  if (Options.SaveDlgPosSize || Options.SaveLastFilter || Options.SaveAutoPreview)
+  if (Options.SaveDlgPosSize ||
+      Options.SaveLastFilter ||
+      Options.SaveAutoPreview ||
+      Options.SaveStartDir)
   {
     oInitialSettings = loadSettings();
 
@@ -465,6 +473,11 @@ function runScript()
       Options.AutoPreviewSelectedFile = oInitialSettings.AutoPreview;
     else
       oInitialSettings.AutoPreview = Options.AutoPreviewSelectedFile;
+
+    if (oInitialSettings.StartDir != undefined)
+      Options.StartDir = oInitialSettings.StartDir;
+    else
+      oInitialSettings.StartDir = Options.StartDir;
   }
 
   hWndScriptDlg = oSys.Call("user32::CreateWindowEx" + _TCHAR,
@@ -620,8 +633,8 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
   else if (uMsg == WM_KEYDOWN)
   {
     //log.WriteLine("DialogCallback - WM_KEYDOWN - " + wParam.toString(16));
-    oState.isHelpJustShown = false;
-    //log.WriteLine("isHelpJustShown = false");
+    oState.isIgnoringEscKeyUp = false;
+    //log.WriteLine("isIgnoringEscKeyUp = false");
     if (wParam == VK_ESCAPE)
     {
       oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
@@ -647,7 +660,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     if (wParam == VK_ESCAPE)
     {
       //log.WriteLine("DialogCallback - WM_KEYUP - VK_ESCAPE");
-      if (!oState.isHelpJustShown)
+      if (!oState.isIgnoringEscKeyUp)
       {
         oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
       }
@@ -910,7 +923,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
   else if (uMsg == WM_CLOSE)
   {
-    if (Options.SaveDlgPosSize || Options.SaveLastFilter || Options.SaveAutoPreview)
+    if (Options.SaveDlgPosSize ||
+        Options.SaveLastFilter ||
+        Options.SaveAutoPreview ||
+        Options.SaveStartDir)
     {
       var oNewSettings = createEmptySettingsObject();
       if (Options.SaveDlgPosSize)
@@ -938,6 +954,11 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
           oNewSettings.AutoPreview = Options.AutoPreviewSelectedFile;
         }
       }
+      if (Options.SaveStartDir)
+      {
+        if (oInitialSettings == undefined || oInitialSettings.StartDir != Options.StartDir)
+          oNewSettings.StartDir = Options.StartDir;
+      }
       saveSettings(oNewSettings);
     }
 
@@ -958,8 +979,8 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
   if (uMsg == WM_KEYDOWN)
   {
     //log.WriteLine("FilterEditCallback - WM_KEYDOWN - " + wParam.toString(16));
-    oState.isHelpJustShown = false;
-    //log.WriteLine("isHelpJustShown = false");
+    oState.isIgnoringEscKeyUp = false;
+    //log.WriteLine("isIgnoringEscKeyUp = false");
     if (wParam == VK_BACK || wParam == VK_DELETE)
     {
       if ((wParam == VK_BACK) && IsCtrlPressed()) // Ctrl+Backspace
@@ -1046,7 +1067,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
     if (wParam == VK_ESCAPE)
     {
       //log.WriteLine("FilterEditCallback - WM_KEYUP - VK_ESCAPE");
-      if (!oState.isHelpJustShown)
+      if (!oState.isIgnoringEscKeyUp)
       {
         oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
         return 0;
@@ -1091,6 +1112,74 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         remove_syschar_message_and_close();
         return 0;
       }
+      else if (wParam == 0x44) // Alt+D
+      {
+        var lpMsg = memAlloc(_X64 ? 48 : 28); // sizeof(MSG)
+        if (lpMsg)
+        {
+          oSys.Call("user32::PeekMessage" + _TCHAR, lpMsg, 0, WM_SYSCHAR, WM_SYSCHAR, PM_REMOVE);
+          oSys.Call("user32::PeekMessage" + _TCHAR, lpMsg, 0, WM_SYSKEYUP, WM_SYSKEYUP, PM_REMOVE);
+          memFree(lpMsg);
+        }
+
+        var c;
+        var dir;
+        var startDirResult = getStartDir();
+        var title = "Set the start (project) directory for [D] files:";
+        if (!startDirResult.fromCurrDir)
+        {
+          title += "\n(set empty value to use the current directory)";
+        }
+
+        do
+        {
+          dir = AkelPad.InputBox(AkelPad.GetMainWnd(), WScript.ScriptName, title, startDirResult.dir);
+          if (dir == undefined || dir == "")
+            break;
+
+          while (dir.length > 0)
+          {
+            c = dir.substr(dir.length - 1, 1);
+            if (c == "\\" || c == "/")
+              dir = dir.substr(0, dir.length - 1);
+            else
+              break;
+          }
+        }
+        while (!oFSO.FolderExists(dir));
+
+        if (dir != undefined && dir != startDirResult.dir)
+        {
+          if (dir == "")
+          {
+            // use the current dir
+            if (!startDirResult.fromCurrDir)
+            {
+              Options.StartDir = dir;
+              oState.isDirectoryFilesLoaded = false;
+              oState.DirectoryFiles = [];
+              FilesList_Fill(hWndFilesList, undefined);
+              SetWndText(hWndFilterEdit, "");
+            }
+          }
+          else if (dir != startDirResult.dir)
+          {
+            Options.StartDir = dir;
+            oState.isDirectoryFilesLoaded = false;
+            oState.DirectoryFiles = [];
+            FilesList_Fill(hWndFilesList, undefined);
+            SetWndText(hWndFilterEdit, "");
+          }
+        }
+
+        if (dir == undefined) // "Cancel" or Esc pressed
+        {
+          // this helps to ignore the Esc pressed in the InputBox
+          oState.isIgnoringEscKeyUp = true;
+        }
+        oSys.Call("user32::SetFocus", hWndFilterEdit);
+        return 0;
+      }
       else if (wParam == 0x46) // Alt+F
       {
         oState.ActionItem = Consts.nActionEditFavourites;
@@ -1113,8 +1202,8 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   if (uMsg == WM_KEYDOWN)
   {
     //log.WriteLine("FilesListCallback - WM_KEYDOWN - " + wParam.toString(16));
-    oState.isHelpJustShown = false;
-    //log.WriteLine("isHelpJustShown = false");
+    oState.isIgnoringEscKeyUp = false;
+    //log.WriteLine("isIgnoringEscKeyUp = false");
     if (wParam == VK_DOWN || wParam == VK_UP ||
         wParam == VK_PRIOR || wParam == VK_NEXT ||
         wParam == VK_HOME || wParam == VK_END)
@@ -1140,7 +1229,7 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
     if (wParam == VK_ESCAPE)
     {
       //log.WriteLine("FilesListCallback - WM_KEYUP - VK_ESCAPE");
-      if (!oState.isHelpJustShown)
+      if (!oState.isIgnoringEscKeyUp)
       {
         oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, WM_CLOSE, 0, 0);
         return 0;
@@ -1983,8 +2072,8 @@ function isApplyingColorTheme()
 
 function showHelp()
 {
-  oState.isHelpJustShown = true;
-  //log.WriteLine("isHelpJustShown = true");
+  oState.isIgnoringEscKeyUp = true;
+  //log.WriteLine("isIgnoringEscKeyUp = true");
   oSys.Call("user32::MessageBox" + _TCHAR, hWndScriptDlg, sScriptHelp, sScriptName + ": Help", MB_OK);
   oSys.Call("user32::SetFocus", hWndFilterEdit);
 }
@@ -2031,6 +2120,29 @@ function getFavFilePath()
   return sScriptFullPath.substring(0, sScriptFullPath.lastIndexOf(".")) + ".fav";
 }
 
+function getStartDir()
+{
+  var result = new Object();
+  if (Options.StartDir != undefined &&
+      Options.StartDir != "" &&
+      oFSO.FolderExists(Options.StartDir))
+  {
+    result.dir = Options.StartDir;
+    result.fromCurrDir = false;
+    return result;
+  }
+
+  var startDir = AkelPad.GetEditFile(0);
+  var i;
+  for (i = Options.DirFilesStartLevel + 1; i > 0 && startDir.length > 3; i--)
+  {
+    startDir = AkelPad.GetFilePath(startDir, 1 /*CPF_DIR*/);
+  }
+  result.dir = startDir;
+  result.fromCurrDir = true;
+  return result;
+}
+
 function getDirectoryFiles()
 {
   if (Options.DirFilesStartLevel < 0)
@@ -2049,22 +2161,35 @@ function getDirectoryFiles()
                      "db", "bin", "iso", "obj", "o" // binaries
                     ];
 
-  // first, process the current directory...
-  var i;
-  var dirPath = AkelPad.GetFilePath(AkelPad.GetEditFile(0), 1 /*CPF_DIR*/);
-  var result = getFilesInDir(dirPath, excludeExts, excludeDirs, Options.DirFilesMaxDepth, 0);
-  var directoryFiles = result.files;
+  var directoryFiles = [];
+  var result = undefined;
+  var currDir = AkelPad.GetFilePath(AkelPad.GetEditFile(0), 1 /*CPF_DIR*/);
+  var startDir = getStartDir().dir;
+  var isStartDirInCurrDir = false;
 
-  if (result.code == 0 && Options.DirFilesStartLevel > 0)
+  if (currDir.toUpperCase() != startDir.toUpperCase() &&
+      currDir.toUpperCase().indexOf(startDir.toUpperCase()) == 0)
   {
-    // next, process the upper directory...
-    excludeDirs.push(dirPath); // except the current dir
-    for (i = Options.DirFilesStartLevel; i > 0 && dirPath.length > 3; i--)
+    isStartDirInCurrDir = true;
+  }
+
+  if (isStartDirInCurrDir)
+  {
+    // first, process the current directory...
+    result = getFilesInDir(currDir, excludeExts, excludeDirs, Options.DirFilesMaxDepth, 0);
+    directoryFiles = result.files;
+  }
+
+  if ((result == undefined) || 
+      (result.code == 0 && isStartDirInCurrDir))
+  {
+    // next, process the start directory...
+    if (result != undefined)
     {
-      dirPath = AkelPad.GetFilePath(dirPath, 1 /*CPF_DIR*/);
+      excludeDirs.push(currDir); // except the current dir
     }
     directoryFiles = directoryFiles.concat(
-      getFilesInDir(dirPath, excludeExts, excludeDirs, Options.DirFilesMaxDepth, directoryFiles.length).files);
+      getFilesInDir(startDir, excludeExts, excludeDirs, Options.DirFilesMaxDepth, directoryFiles.length).files);
   }
 
   //WScript.Echo("Number of files: " + directoryFiles.length);
@@ -2248,6 +2373,7 @@ function createEmptySettingsObject()
   oSettings.Dlg.H = undefined;
   oSettings.Filter = undefined;
   oSettings.AutoPreview = undefined;
+  oSettings.StartDir = undefined;
   return oSettings;
 }
 
@@ -2256,7 +2382,8 @@ function isSettingsObjectEmpty(oSettings)
   if (oSettings != undefined)
   {
     if (oSettings.Filter != undefined ||
-        oSettings.AutoPreview != undefined)
+        oSettings.AutoPreview != undefined ||
+        oSettings.StartDir != undefined)
       return false;
 
     if (oSettings.Dlg != undefined)
@@ -2312,6 +2439,10 @@ function loadSettings()
     {
       oSettings.AutoPreview = readBoolSetting(oSet, "AutoPreview");
     }
+    if (Options.SaveStartDir)
+    {
+      oSettings.StartDir = readStrSetting(oSet, "StartDir");
+    }
     oSet.End();
   }
 
@@ -2344,6 +2475,10 @@ function saveSettings(oSettings)
     if (oSettings.AutoPreview != undefined)
     {
       oSet.Write("AutoPreview", PO_STRING, oSettings.AutoPreview ? "true" : "false");
+    }
+    if (oSettings.StartDir != undefined)
+    {
+      oSet.Write("StartDir", PO_STRING, oSettings.StartDir);
     }
     oSet.End();
   }
