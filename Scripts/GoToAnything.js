@@ -72,13 +72,13 @@ var Options = {
   SaveLastFilter : false, // experimental: whether to save the last filter
   SaveAutoPreview : true, // whether to save the AutoPreviewSelectedFile value
   SaveStartDir : true, // save the start (project) directory
-  PathDepth : 4, // path depth of items in the file list
+  VisualPathDepth : 4, // visual path depth of items in the file list
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
   FoldersInFavourites : false, // experimental: folders in Favourites
   StartDir : "", // start (project) directory for [D] files, "" - current directory
   DirFilesStartLevel : 0, // show [D] files from: -1 - none, 0 - current dir, 1 - upper dir, ...
-  DirFilesMaxDepth : 6, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
+  DirFilesMaxDepth : 4, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
   MaxDirFiles : 5000, // max number of [D] files, handling 5000 items is already slow...
   ShowItemPrefixes : true,  // whether to show the [A], [D], [F] and [H] prefixes
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
@@ -1482,7 +1482,7 @@ function FilesList_Fill(hListWnd, sFilter)
     {
       fpath = getFrameFileName(oState.AkelPadFrames[i]);
       activeFilePaths.push(fpath);
-      item = getNthDepthPath(fpath, Options.PathDepth);
+      item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[A] " + item;
       fnames.push(item);
@@ -1498,7 +1498,7 @@ function FilesList_Fill(hListWnd, sFilter)
     fpath = oState.DirectoryFiles[i];
     if (!isStringInArray(fpath, activeFilePaths, true))
     {
-      item = getNthDepthPath(fpath, Options.PathDepth);
+      item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[D] " + item;
       fnames.push(item);
@@ -1514,7 +1514,7 @@ function FilesList_Fill(hListWnd, sFilter)
     fpath = oState.AkelPadFavourites[i];
     if (!isStringInArray(fpath, activeFilePaths, true))
     {
-      item = getNthDepthPath(fpath, Options.PathDepth);
+      item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[F] " + item;
       fnames.push(item);
@@ -1531,7 +1531,7 @@ function FilesList_Fill(hListWnd, sFilter)
     if (!isStringInArray(fpath, activeFilePaths, true) &&
         !isStringInArray(fpath, oState.AkelPadFavourites, true))
     {
-      item = getNthDepthPath(fpath, Options.PathDepth);
+      item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[H] " + item;
       fnames.push(item);
@@ -2133,10 +2133,17 @@ function getStartDir()
   }
 
   var startDir = AkelPad.GetEditFile(0);
-  var i;
-  for (i = Options.DirFilesStartLevel + 1; i > 0 && startDir.length > 3; i--)
+  if (startDir == undefined)
   {
-    startDir = AkelPad.GetFilePath(startDir, 1 /*CPF_DIR*/);
+    startDir = "";
+  }
+  if (startDir != "")
+  {
+    var i;
+    for (i = Options.DirFilesStartLevel + 1; i > 0 && startDir.length > 3; i--)
+    {
+      startDir = AkelPad.GetFilePath(startDir, 1 /*CPF_DIR*/);
+    }
   }
   result.dir = startDir;
   result.fromCurrDir = true;
@@ -2151,6 +2158,16 @@ function getDirectoryFiles()
   if (oState.isDirectoryFilesLoaded)
     return oState.DirectoryFiles;
 
+  var directoryFiles = [];
+  var currDir = AkelPad.GetFilePath(AkelPad.GetEditFile(0), 1 /*CPF_DIR*/);
+  var startDir = getStartDir().dir;
+
+  if (startDir == "")
+  {
+    oState.isDirectoryFilesLoaded = true;
+    return directoryFiles;
+  }
+
   var excludeDirs = [".git", ".vs"];
   var excludeExts = ["dll", "exe", "ocx", // executables
                      "7z", "bz2", "cab", "gz", "msi", "rar", "tar", "zip", // archives
@@ -2161,10 +2178,7 @@ function getDirectoryFiles()
                      "db", "bin", "iso", "obj", "o" // binaries
                     ];
 
-  var directoryFiles = [];
   var result = undefined;
-  var currDir = AkelPad.GetFilePath(AkelPad.GetEditFile(0), 1 /*CPF_DIR*/);
-  var startDir = getStartDir().dir;
   var isStartDirInCurrDir = false;
 
   if (currDir.toUpperCase() != startDir.toUpperCase() &&
