@@ -80,7 +80,8 @@ var Options = {
   DirFilesStartLevel : 0, // show [D] files from: -1 - none, 0 - current dir, 1 - upper dir, ...
   DirFilesMaxDepth : 4, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
   MaxDirFiles : 5000, // max number of [D] files, handling 5000 items is already slow...
-  ShowItemPrefixes : true,  // whether to show the [A], [D], [F] and [H] prefixes
+  ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
+  ShowNumberOfItemsInTitle : false, // whether to add " [filtered/total]" to the title
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
   AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
   TextMatchColor : 0x0040FF // color of the matching parts of file names: 0xBBGGRR
@@ -184,9 +185,6 @@ var LB_ADDSTRING       = 0x0180;
 var LB_RESETCONTENT    = 0x0184;
 var LB_SETCURSEL       = 0x0186;
 var LB_GETCURSEL       = 0x0188;
-var LB_GETTEXT         = 0x0189;
-var LB_GETITEMDATA     = 0x0199;
-var LB_SETITEMDATA     = 0x019A;
 var LBN_DBLCLK         = 2;
 var PM_REMOVE          = 0x0001;
 
@@ -205,9 +203,9 @@ var WS_EX_CONTEXTHELP  = 0x00000400;
 var WS_EX_LAYERED      = 0x00080000;
 var ES_AUTOHSCROLL     = 0x0080;
 var LBS_NOTIFY         = 0x0001;
-var LBS_SORT           = 0x0002;
 var LBS_OWNERDRAWFIXED = 0x0010;
 var LBS_USETABSTOPS    = 0x0080;
+var LBS_NODATA         = 0x2000;
 
 // Owner draw actions
 var ODA_DRAWENTIRE = 0x0001;
@@ -427,7 +425,7 @@ function runScript()
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
   aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight]);
-  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY|LBS_OWNERDRAWFIXED;
+  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_NODATA;
   aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+6, -1, -1]);
 
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
@@ -797,17 +795,9 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
         if (filter != undefined && typeof(filter) == "string")
         {
-          c = filter.lastIndexOf(Options.Char_GoToText1);
-          if (c == -1)
-          {
-            c = filter.lastIndexOf(Options.Char_GoToText2);
-            if (c == -1)
-              c = filter.lastIndexOf(Options.Char_GoToLine);
-          }
-          if (c != -1)
-          {
-            filter = filter.substr(0, c);
-          }
+          i = GetSpecialPosInFilter(filter);
+          if (i != -1)
+            filter = filter.substr(0, i);
         }
 
         if (match != undefined && typeof(match) == "string")
@@ -1421,7 +1411,7 @@ function FilesList_GetCurSelData(hListWnd)
   if (n < 0)
     n = 0;
 
-  return AkelPad.SendMessage(hListWnd, LB_GETITEMDATA, n, 0);
+  return oFileListItems[n][1];
 }
 
 function FilesList_SetCurSel(hListWnd, nItem)
@@ -1434,10 +1424,9 @@ function FilesList_Clear(hListWnd)
   AkelPad.SendMessage(hListWnd, LB_RESETCONTENT, 0, 0);
 }
 
-function FilesList_AddItem(hListWnd, fileName, fileIdx)
+function FilesList_AddItem(hListWnd, fileName)
 {
   var n = AkelPad.SendMessage(hListWnd, LB_ADDSTRING, 0, fileName);
-  AkelPad.SendMessage(hListWnd, LB_SETITEMDATA, n, fileIdx);
 }
 
 function FilesList_Fill(hListWnd, sFilter)
@@ -1554,7 +1543,7 @@ function FilesList_Fill(hListWnd, sFilter)
     m.push(matches[i][1]); // fileIdx
     m.push(fnames[matches[i][2]]); // fileName
     oFileListItems.push(m);
-    FilesList_AddItem(hListWnd, fnames[matches[i][2]], matches[i][1]);
+    FilesList_AddItem(hListWnd, fnames[matches[i][2]]);
   }
 
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, TRUE, 0);
@@ -1566,6 +1555,13 @@ function FilesList_Fill(hListWnd, sFilter)
     {
       FilesList_ActivateSelectedItem(hListWnd);
     }
+  }
+
+  if (Options.ShowNumberOfItemsInTitle)
+  {
+    var title = sScriptName + "  [" + matches.length + "/" + fnames.length + "]";
+    var hDlg = oSys.Call("user32::GetParent", hListWnd);
+    SetWndText(hDlg, title);
   }
 }
 
