@@ -1119,7 +1119,22 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         var title = "Set the start (project) directory for [D] files:";
         if (!startDirResult.fromCurrDir)
         {
-          title += "\n(set empty value to use the current directory)";
+          title += "\n* currently using a directory from the config \
+\n* to switch to the directory of the active file, set an empty string";
+        }
+        else if (startDirResult.dir != "" && startDirResult.dir != oState.LastStartDir)
+        {
+          if (Options.SaveStartDir)
+          {
+            title += "\n* currently showing a directory of the active file \
+\n* to switch to this directory and save it to the config, press OK \
+\n* to switch to this directory without saving, set an empty string";
+          }
+          else
+          {
+            title += "\n* currently showing a directory of the active file \
+\n* to switch to this directory, press OK";
+          }
         }
 
         do
@@ -1148,7 +1163,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
             {
               Options.StartDir = dir;
             }
-            if (getStartDir().dir != oState.LastStartDir)
+            if (startDirResult.dir != "" && getStartDir().dir != oState.LastStartDir)
             {
               oState.isDirectoryFilesLoaded = false;
               oState.DirectoryFiles = [];
