@@ -1516,6 +1516,15 @@ function FilesList_Fill(hListWnd, sFilter)
     }
   }
 
+  // Note:
+  // isStringInArray() is an expensive operation, especially when the given
+  // array contains a lot of items.
+  // That's why the code below does not use
+  //   !isStringInArray(fpath, oState.DirectoryFiles, true)
+  // Otherwise the performance would be degraded.
+  // (In case of several thousands of files, there would be a noticeable
+  // delay _each_ time the file filter is changed).
+
   // Favourites
   oState.AkelPadFavourites = getFavourites();
   for (i = 0; i < oState.AkelPadFavourites.length; i++)
