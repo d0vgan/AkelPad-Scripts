@@ -1305,7 +1305,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
       }
     }
 
-    sFilter = sFilter.toUpperCase();
+    sFilter = sFilter.toLowerCase();
   }
 
   if (sFilter != oState.sLastPartialFilter)
@@ -1453,6 +1453,7 @@ function FilesList_AddItem(hListWnd, fileName)
 function FilesList_Fill(hListWnd, sFilter)
 {
   var i;
+  var n;
   var fpath;
   var item;
   var totalItems = 0;
@@ -1471,7 +1472,7 @@ function FilesList_Fill(hListWnd, sFilter)
     }
     else
     {
-      var mf = MatchFilter(sFilter, fname.toUpperCase());
+      var mf = MatchFilter(sFilter, fname.toLowerCase());
       if (mf != "")
       {
         var m = [];
@@ -1485,7 +1486,8 @@ function FilesList_Fill(hListWnd, sFilter)
 
   // Active documents (frames)
   oState.AkelPadFrames = getAllFrames();
-  for (i = 0; i < oState.AkelPadFrames.length; i++)
+  n = oState.AkelPadFrames.length;
+  for (i = 0; i < n; i++)
   {
     if (oState.AkelPadFrames[i] != oState.lpTemporaryFrame)
     {
@@ -1501,7 +1503,8 @@ function FilesList_Fill(hListWnd, sFilter)
 
   // Directory files
   oState.DirectoryFiles = getDirectoryFiles();
-  for (i = 0; i < oState.DirectoryFiles.length; i++)
+  n = oState.DirectoryFiles.length;
+  for (i = 0; i < n; i++)
   {
     fpath = oState.DirectoryFiles[i];
     if (!isStringInArray(fpath, activeFilePaths, true))
@@ -1525,7 +1528,8 @@ function FilesList_Fill(hListWnd, sFilter)
 
   // Favourites
   oState.AkelPadFavourites = getFavourites();
-  for (i = 0; i < oState.AkelPadFavourites.length; i++)
+  n = oState.AkelPadFavourites.length;
+  for (i = 0; i < n; i++)
   {
     fpath = oState.AkelPadFavourites[i];
     if (!isStringInArray(fpath, activeFilePaths, true))
@@ -1540,7 +1544,8 @@ function FilesList_Fill(hListWnd, sFilter)
 
   // Recent files
   oState.AkelPadRecentFiles = getRecentFiles();
-  for (i = 0; i < oState.AkelPadRecentFiles.length; i++)
+  n = oState.AkelPadRecentFiles.length;
+  for (i = 0; i < n; i++)
   {
     fpath = oState.AkelPadRecentFiles[i];
     if (!isStringInArray(fpath, activeFilePaths, true) &&
@@ -1561,7 +1566,8 @@ function FilesList_Fill(hListWnd, sFilter)
 
   oFileListItems = matches; // [0] - match, [1] - offset, [2] - name
 
-  for (i = 0; i < oFileListItems.length; i++)
+  n = oFileListItems.length;
+  for (i = 0; i < n; i++)
   {
     FilesList_AddItem(hListWnd, oFileListItems[i][2]);
   }
@@ -1982,11 +1988,18 @@ function substituteEnvVars(s)
 function isStringInArray(str, arr, ignoreCase)
 {
   var i;
-  for (i = 0; i < arr.length; i++)
+  var n = arr.length;
+
+  if (ignoreCase)
+  {
+    str = str.toLowerCase();
+  }
+
+  for (i = 0; i < n; i++)
   {
     if (ignoreCase)
     {
-      if (str.toUpperCase() == arr[i].toUpperCase())
+      if (str == arr[i].toLowerCase())
         return true;
     }
     else
@@ -2204,8 +2217,8 @@ function getDirectoryFiles()
   var result = undefined;
   var isStartDirInCurrDir = false;
 
-  if (currDir.toUpperCase() != startDir.toUpperCase() &&
-      currDir.toUpperCase().indexOf(startDir.toUpperCase()) == 0)
+  if (currDir.toLowerCase() != startDir.toLowerCase() &&
+      currDir.toLowerCase().indexOf(startDir.toLowerCase()) == 0)
   {
     isStartDirInCurrDir = true;
   }
@@ -2245,6 +2258,8 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
   var nAttr;
   var i;
   var j;
+  var nDirs;
+  var nSubDirs;
 
   var result = new Object();
   result.files = [];
@@ -2295,10 +2310,12 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
   if (result.code != NoError)
     return result;
 
-  for (i = 0; i < dirs.length && result.code == NoError; i++)
+  nDirs = dirs.length;
+  for (i = 0; i < nDirs && result.code == NoError; i++)
   {
     subresult = getFilesInDir(dirs[i], excludeFileExts, excludeDirs, maxDepth - 1, totalFiles);
-    for (j = 0; j < subresult.files.length && result.code == NoError; j++)
+    nSubDirs = subresult.files.length;
+    for (j = 0; j < nSubDirs && result.code == NoError; j++)
     {
       result.files.push(subresult.files[j]);
       totalFiles++;
