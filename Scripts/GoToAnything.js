@@ -408,7 +408,7 @@ function runScript()
       nTextColorRGB = getRgbIntFromHex(sTextColor);
       nBkColorRGB = getRgbIntFromHex(sBkColor);
       //log.WriteLine("TextColor = " + sTextColor + "\nBkColor = " + sBkColor);
-      if (nTextColorRGB != -1 && nBkColorRGB != -1)
+      if (nTextColorRGB !== -1 && nBkColorRGB !== -1)
       {
         hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
       }
@@ -797,30 +797,30 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         if (filter != undefined && typeof(filter) == "string")
         {
           i = GetSpecialPosInFilter(filter);
-          if (i != -1)
+          if (i !== -1)
             filter = filter.substr(0, i);
         }
 
         if (match != undefined && typeof(match) == "string")
         {
           c = match.substr(0, 2);
-          if (c == "e1") // exact name match
+          if (c === "e1") // exact name match
           {
             matchType = 1;
             matchIdx = text.lastIndexOf("\\");
             matchIdx += parseInt(match.substr(2), 10);
           }
-          else if (c == "e2") // exact pathname match
+          else if (c === "e2") // exact pathname match
           {
             matchType = 2;
             matchIdx = parseInt(match.substr(2), 10);
           }
-          else if (c == "p1") // partial name match
+          else if (c === "p1") // partial name match
           {
             matchType = 3;
             matchIdx = text.lastIndexOf("\\");
           }
-          else if (c == "p2") // partial pathname match
+          else if (c === "p2") // partial pathname match
           {
             matchType = 4;
           }
@@ -846,12 +846,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
             case 3: // partial name match
               if (i > matchIdx && i + 1 - matchIdx < match.length)
               {
-                if (match.substr(i + 1 - matchIdx, 1) == "v")
+                if (match.substr(i + 1 - matchIdx, 1) === "v")
                   crChar = crTextMatch;
               }
               break;
             case 4: // partial pathname match
-              if (i + 2 < match.length && match.substr(i + 2, 1) == "v")
+              if (i + 2 < match.length && match.substr(i + 2, 1) === "v")
               {
                 crChar = crTextMatch;
               }
@@ -980,11 +980,11 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         var n2 = HIWORD(AkelPad.SendMessage(hWnd, EM_GETSEL, 0, 0));
         var s = GetWndText(hWnd).substr(0, n1);
         var n = GetSpecialPosInFilter(s);
-        if (n != -1)
+        if (n !== -1)
         {
-          n1 = (n + 1 == n1) ? 0 : (n + 1);
+          n1 = (n + 1 === n1) ? 0 : (n + 1);
         }
-        if (n == -1)
+        if (n === -1)
         {
           AkelPad.WindowNextProc(hSubclassFilterEdit, hWnd, uMsg, VK_LEFT, 0);
           n1 = LOWORD(AkelPad.SendMessage(hWnd, EM_GETSEL, 0, 0));
@@ -1138,13 +1138,13 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         do
         {
           dir = AkelPad.InputBox(AkelPad.GetMainWnd(), WScript.ScriptName, title, startDirResult.dir);
-          if (dir == undefined || dir == "")
+          if (dir == undefined || dir === "")
             break;
 
           while (dir.length > 0)
           {
             c = dir.substr(dir.length - 1, 1);
-            if (c == "\\" || c == "/")
+            if (c === "\\" || c === "/")
               dir = dir.substr(0, dir.length - 1);
             else
               break;
@@ -1154,7 +1154,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
 
         if (dir != undefined)
         {
-          if (dir == "")
+          if (dir === "")
           {
             // use the current dir
             if (!startDirResult.fromCurrDir)
@@ -1287,16 +1287,16 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     if (i != -1)
     {
       c = sFilter.substr(i, 1);
-      if (c == Options.Char_GoToText1 || c == Options.Char_GoToText2)
+      if (c === Options.Char_GoToText1 || c === Options.Char_GoToText2)
       {
-        if (c == Options.Char_GoToText1 && nFindNext == 0)
+        if (c === Options.Char_GoToText1 && nFindNext == 0)
         {
           fromBeginning = true;
         }
         sFindWhat = sFilter.substr(i + 1);
         sFilter = sFilter.substr(0, i);
       }
-      else if (c == Options.Char_GoToLine)
+      else if (c === Options.Char_GoToLine)
       {
         nLine = parseInt(sFilter.substr(i + 1));
         if (isNaN(nLine))
@@ -1351,10 +1351,10 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
       for (i = 0; i < t.length; i++)
       {
         c = t.charAt(i);
-        if (c != " ")
+        if (c !== " ")
         {
           sFindWhat += c;
-          if (c == "\\")
+          if (c === "\\")
           {
             i++;
             sFindWhat += t.charAt(i);
@@ -1406,21 +1406,21 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
 function GetSpecialPosInFilter(sFilter)
 {
-  if (sFilter == undefined || sFilter == "")
+  if (sFilter == undefined || sFilter === "")
     return -1;
 
   var i1 = sFilter.indexOf(Options.Char_GoToText1);
   var i2 = sFilter.indexOf(Options.Char_GoToText2);
-  if (i1 != -1)
-    return (i2 != -1 && i2 < i1) ? i2 : i1;
-  else if (i2 != -1)
+  if (i1 !== -1)
+    return (i2 !== -1 && i2 < i1) ? i2 : i1;
+  else if (i2 !== -1)
     return i2;
 
   i1 = sFilter.lastIndexOf(Options.Char_GoToLine);
-  if (i1 != -1)
+  if (i1 !== -1)
   {
     var c = sFilter.substr(i1 + 1, 1);
-    if (c == "\\" || c == "/")
+    if (c === "\\" || c === "/")
       i1 = -1;
   }
   return i1;
@@ -1462,7 +1462,7 @@ function FilesList_Fill(hListWnd, sFilter)
 
   function matches_add_if_match(offset, fname)
   {
-    if (sFilter == undefined || sFilter == "")
+    if (sFilter == undefined || sFilter === "")
     {
       var m = [];
       m.push(offset);  // match=offset
@@ -1473,7 +1473,7 @@ function FilesList_Fill(hListWnd, sFilter)
     else
     {
       var mf = MatchFilter(sFilter, fname.toLowerCase());
-      if (mf != "")
+      if (mf !== "")
       {
         var m = [];
         m.push(mf);      // match
@@ -1757,7 +1757,7 @@ function MatchFilter(sFilter, sFilePath)
   var fname = getFileName(sFilePath);
 
   i = fname.indexOf(sFilter)
-  if (i != -1)
+  if (i !== -1)
   {
     m = "" + i;
     while (m.length < 3)  m = "0" + m;
@@ -1769,9 +1769,9 @@ function MatchFilter(sFilter, sFilePath)
   for (i = 0; i < sFilter.length; i++)
   {
     c = sFilter.substr(i, 1);
-    if (c != " ") // ' ' matches any character
+    if (c !== " ") // ' ' matches any character
       j = fname.indexOf(c, j);
-    if (j == -1)
+    if (j === -1)
     {
       m = ""; // no match
       break;
@@ -1781,13 +1781,13 @@ function MatchFilter(sFilter, sFilePath)
     m = m + "v";
     ++j;
   }
-  if (m != "")
+  if (m !== "")
     return "p1" + m; // partial name match
 
-  if (fname != sFilePath)
+  if (fname !== sFilePath)
   {
     i = sFilePath.indexOf(sFilter);
-    if (i != -1)
+    if (i !== -1)
     {
       m = "" + i;
       while (m.length < 3)  m = "0" + m;
@@ -1799,9 +1799,9 @@ function MatchFilter(sFilter, sFilePath)
     for (i = 0; i < sFilter.length; i++)
     {
       c = sFilter.substr(i, 1);
-      if (c != " ") // ' ' matches any character
+      if (c !== " ") // ' ' matches any character
         j = sFilePath.indexOf(c, j);
-      if (j == -1)
+      if (j === -1)
         return ""; // no match
 
       while (m.length < j)  m = m + "x";
@@ -1999,12 +1999,12 @@ function isStringInArray(str, arr, ignoreCase)
   {
     if (ignoreCase)
     {
-      if (str == arr[i].toLowerCase())
+      if (str === arr[i].toLowerCase())
         return true;
     }
     else
     {
-      if (str == arr[i])
+      if (str === arr[i])
         return true;
     }
   }
@@ -2028,10 +2028,10 @@ function getNthDepthPath(path, depth)
     k1 = path.lastIndexOf("\\", k);
     k2 = path.lastIndexOf("/", k);
     k = (k1 > k2) ? k1 : k2;
-    if (k == -1)
+    if (k === -1)
       break;
 
-    if (--depth == 0)
+    if (--depth === 0)
       return path.substr(k + 1);
 
     --k;
@@ -2045,12 +2045,12 @@ function getFileName(path)
   var k = -1;
   var k1 = path.lastIndexOf("\\");
   var k2 = path.lastIndexOf("/");
-  if (k1 != -1)
+  if (k1 !== -1)
     k = (k2 > k1) ? k2 : k1;
-  else if (k2 != -1)
+  else if (k2 !== -1)
     k = k2;
 
-  if (k != -1)
+  if (k !== -1)
     path = path.substr(k + 1);
 
   return path;
@@ -2074,7 +2074,7 @@ function getRgbIntFromHex(sRgb)
   if (sRgb.length != 0)
   {
     var i = 0;
-    if (sRgb.substr(0, 1) == "#")
+    if (sRgb.substr(0, 1) === "#")
       i = 1;
     if (sRgb.length - i == 6)
     {
@@ -2102,7 +2102,7 @@ function getRgbIntFromHex(sRgb)
 
 function isApplyingColorTheme()
 {
-  return (Options.ApplyColorTheme && nBkColorRGB != -1 && nTextColorRGB != -1);
+  return (Options.ApplyColorTheme && nBkColorRGB !== -1 && nTextColorRGB !== -1);
 }
 
 function showHelp()
@@ -2159,7 +2159,7 @@ function getStartDir()
 {
   var result = new Object();
   if (Options.StartDir != undefined &&
-      Options.StartDir != "" &&
+      Options.StartDir !== "" &&
       oFSO.FolderExists(Options.StartDir))
   {
     result.dir = Options.StartDir;
@@ -2172,7 +2172,7 @@ function getStartDir()
   {
     startDir = "";
   }
-  if (startDir != "")
+  if (startDir !== "")
   {
     var i;
     for (i = Options.DirFilesStartLevel + 1; i > 0 && startDir.length > 3; i--)
@@ -2197,7 +2197,7 @@ function getDirectoryFiles()
   var currDir = AkelPad.GetFilePath(AkelPad.GetEditFile(0), 1 /*CPF_DIR*/);
   var startDir = getStartDir().dir;
 
-  if (startDir == "")
+  if (startDir === "")
   {
     oState.LastStartDir = startDir;
     oState.isDirectoryFilesLoaded = true;
@@ -2274,7 +2274,7 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
     do
     {
       s = AkelPad.MemRead(_PtrAdd(lpFindData, 44), DT_UNICODE); // WIN32_FIND_DATAW.cFileName)
-      if (s == "." || s == "..")
+      if (s === "." || s === "..")
         continue;
 
       sFullName = dirPath + "\\" + s;
@@ -2466,9 +2466,9 @@ function readStrSetting(oSet, name)
 function readBoolSetting(oSet, name)
 {
   var s = oSet.Read(name, PO_STRING);
-  if (s == "true")
+  if (s === "true")
     return true;
-  if (s == "false")
+  if (s === "false")
     return false;
   return undefined;
 }
