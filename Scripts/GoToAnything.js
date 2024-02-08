@@ -1126,14 +1126,12 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         {
           if (Options.SaveStartDir)
           {
-            title += "\n* currently showing a directory of the active file \
-\n* to switch to this directory and save it to the config, press OK \
-\n* to switch to this directory without saving, set an empty string";
+            title += "\n* to switch to this directory and save it to the config, press OK \
+\n* to switch to a directory of the active file, set an empty string";
           }
           else
           {
-            title += "\n* currently showing a directory of the active file \
-\n* to switch to this directory, press OK";
+            title += "\n* to switch to this directory, press OK";
           }
         }
 
