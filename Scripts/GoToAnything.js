@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
-// Version: 0.7 beta
+// Version: 0.7.0
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -319,14 +319,15 @@ var IDC_LB_ITEMS  = 1021;
 
 function createConsts()
 {
-  var c = new Object();
-  c.nFramesOffset = 2000;
-  c.nDirFilesOffset = 6000;
-  c.nFavouritesOffset = 56000;
-  c.nRecentFilesOffset = 62000;
-  c.nActionSelectWindow = -101;
-  c.nActionEditFavourites = -102;
-  c.nActionManageRecentFiles = -103;
+  var c = {
+    nFramesOffset : 2000,
+    nDirFilesOffset : 6000,
+    nFavouritesOffset : 56000,
+    nRecentFilesOffset : 62000,
+    nActionSelectWindow : -101,
+    nActionEditFavourites : -102,
+    nActionManageRecentFiles : -103
+  };
   return c;
 }
 
@@ -1997,16 +1998,8 @@ function isStringInArray(str, arr, ignoreCase)
 
   for (i = 0; i < n; i++)
   {
-    if (ignoreCase)
-    {
-      if (str === arr[i].toLowerCase())
+    if (ignoreCase ? str === arr[i].toLowerCase() : str === arr[i])
         return true;
-    }
-    else
-    {
-      if (str === arr[i])
-        return true;
-    }
   }
   return false;
 }
@@ -2260,20 +2253,20 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
   var j;
   var nDirs;
   var nSubDirs;
-
-  var result = new Object();
-  result.files = [];
-  result.code = NoError; // OK
+  var result = {
+    files : [],
+    code : NoError // OK
+  };
 
   var dirs = [];
-  var lpFindData = memAlloc(656); // sizeof(WIN32_FIND_DATAW)
+  var lpFindData = memAlloc(44 + (260 + 14) * _TSIZE); // sizeof(WIN32_FIND_DATAW)
   var hFindFile = oSys.Call("kernel32::FindFirstFileW", dirPath + "\\*.*", lpFindData);
 
   if (hFindFile != -1) // INVALID_HANDLE_VALUE
   {
     do
     {
-      s = AkelPad.MemRead(_PtrAdd(lpFindData, 44), DT_UNICODE); // WIN32_FIND_DATAW.cFileName)
+      s = AkelPad.MemRead(_PtrAdd(lpFindData, 44), DT_UNICODE); // WIN32_FIND_DATAW.cFileName
       if (s === "." || s === "..")
         continue;
 
@@ -2296,11 +2289,13 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
         result.files.push(sFullName);
         totalFiles++;
         if (totalFiles >= Options.MaxDirFiles)
+        {
           result.code = Error_TooManyFiles;
+          break;
+        }
       }
     }
-    while (result.code == NoError &&
-           oSys.Call("kernel32::FindNextFileW", hFindFile, lpFindData));
+    while (oSys.Call("kernel32::FindNextFileW", hFindFile, lpFindData));
 
     oSys.Call("kernel32::FindClose", hFindFile);
   }
