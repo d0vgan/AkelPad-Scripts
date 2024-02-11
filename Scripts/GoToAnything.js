@@ -22,7 +22,7 @@ Syntax:
 
 Keys:
 
-  Enter    - close and stay where we are
+  Enter    - close and edit the selected file
   Esc      - close and return to the original file and position in that file
   F1       - help
   F3       - find next (down), works with @text and #text
@@ -84,7 +84,11 @@ var Options = {
   ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
   AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
-  TextMatchColor : 0x0040FF // color of the matching parts of file names: 0xBBGGRR
+  TextMatchColor : 0x0040FF, // color of the matching parts of file names: 0xBBGGRR
+  TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
+                                // or specify "" to use the TextMatchColor above
+  SelBkColor_ThemeVar : "" // when ApplyColorTheme is true, use the given var's color (e.g. "HighLight_LineBkColor");
+                           // or specify "" to use the system's color
 }
 
 //Help Text
@@ -104,7 +108,7 @@ var sScriptHelp = "Syntax:\n \
 \n \
 Keys:\n \
 \n \
-  Enter\t- close and stay where we are\n \
+  Enter\t- close and edit the selected file\n \
   Esc\t- close and return to the original file and position in that file\n \
   F1\t- this help\n \
   F3\t- find next (down), works with " + Options.Char_GoToText1 + "text and " + Options.Char_GoToText2 + "text\n \
@@ -295,7 +299,10 @@ var hSubclassFilterEdit;
 var hSubclassFilesList;
 var nTextColorRGB = -1;
 var nBkColorRGB = -1;
+var nMatchColorRGB = -1;
+var nSelBkColorRGB = -1;
 var hBkColorBrush = 0;
+var hSelBkColorBrush = 0;
 var hGuiFont;
 var Consts = createConsts();
 var oState = createState();
@@ -413,6 +420,24 @@ function runScript()
       {
         hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
       }
+      if (Options.TextMatchColor_ThemeVar != undefined && Options.TextMatchColor_ThemeVar != "")
+      {
+        var sMatchColor = getColorThemeVariable(hWndEdit, Options.TextMatchColor_ThemeVar);
+        nMatchColorRGB = getRgbIntFromHex(sMatchColor);
+        if (nMatchColorRGB !== -1)
+        {
+          Options.TextMatchColor = nMatchColorRGB;
+        }
+      }
+      if (Options.SelBkColor_ThemeVar != undefined && Options.SelBkColor_ThemeVar != "")
+      {
+        var sSelBkColor = getColorThemeVariable(hWndEdit, Options.SelBkColor_ThemeVar);
+        nSelBkColorRGB = getRgbIntFromHex(sSelBkColor);
+        if (nSelBkColorRGB !== -1)
+        {
+          hSelBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nSelBkColorRGB);
+        }
+      }
     }
   }
   else
@@ -501,6 +526,11 @@ function runScript()
 
   AkelPad.WindowGetMessage();
   AkelPad.WindowUnregisterClass(sScriptClassName);
+
+  if (hSelBkColorBrush)
+  {
+    oSys.Call("gdi32::DeleteObject", hSelBkColorBrush);
+  }
 
   if (hBkColorBrush)
   {
@@ -770,8 +800,16 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         if (itemState & ODS_SELECTED)
         {
           crText = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHTTEXT);
-          crBk = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHT);
-          hBrushBk = oSys.Call("user32::GetSysColorBrush", COLOR_HIGHLIGHT);
+          if (nSelBkColorRGB != -1 && hSelBkColorBrush != 0)
+          {
+            crBk = nSelBkColorRGB;
+            hBrushBk = hSelBkColorBrush;
+          }
+          else
+          {
+            crBk = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHT);
+            hBrushBk = oSys.Call("user32::GetSysColorBrush", COLOR_HIGHLIGHT);
+          }
         }
         else
         {
