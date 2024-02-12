@@ -1,4 +1,5 @@
-// http://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
+// https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
+// https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
 // Version: 0.7.0
 // Author: Vitaliy Dovgan aka DV
 //
@@ -89,7 +90,7 @@ var Options = {
                                 // or specify "" to use the TextMatchColor above
   SelBkColor_ThemeVar : "" // when ApplyColorTheme is true, use the given var's color (e.g. "HighLight_LineBkColor");
                            // or specify "" to use the system's color
-}
+};
 
 //Help Text
 var sScriptHelp = "Syntax:\n \
