@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.0
+// Version: 0.7.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -328,7 +328,7 @@ var IDC_LB_ITEMS  = 1021;
 function createConsts()
 {
   var c = {
-    nFramesOffset : 2000,
+    nActiveFilesOffset : 2000,
     nDirFilesOffset : 6000,
     nFavouritesOffset : 56000,
     nRecentFilesOffset : 62000,
@@ -346,7 +346,7 @@ function createState()
   s.ActionItem = undefined;
   s.sLastFullFilter = "";
   s.sLastPartialFilter = "";
-  s.AkelPadFrames = [];
+  s.AkelPadActiveFiles = [];
   s.DirectoryFiles = [];
   s.LastStartDir = "";
   s.AkelPadFavourites = [];
@@ -355,7 +355,6 @@ function createState()
   s.nInitialSelStart = AkelPad.GetSelStart();
   s.nInitialSelEnd = AkelPad.GetSelEnd();
   s.nInitialFirstVisibleLine = Edit_GetFirstVisibleLine(hWndEdit);
-  s.lpActiveFrame = s.lpInitialFrame;
   s.lpTemporaryFrame = undefined;
   s.sLastActivatedFilePath = undefined;
   s.nActiveFrameSelStart = s.nInitialSelStart;
@@ -547,21 +546,24 @@ function runScript()
         AkelPad.SendMessage(hWndMain, AKD_FRAMEDESTROY, 0, oState.lpTemporaryFrame);
         oState.lpTemporaryFrame = undefined;
       }
-      if (oState.lpInitialFrame != getCurrentFrame())
+      if (isFrameValid(oState.lpInitialFrame))
       {
-        activateFrame(oState.lpInitialFrame);
-      }
-      if (oState.nInitialSelStart != AkelPad.GetSelStart() ||
-          oState.nInitialSelEnd != AkelPad.GetSelEnd())
-      {
-        AkelPad.SetSel(oState.nInitialSelStart, oState.nInitialSelEnd);
-      }
+        if (oState.lpInitialFrame != getCurrentFrame())
+        {
+          activateFrame(oState.lpInitialFrame);
+        }
+        if (oState.nInitialSelStart != AkelPad.GetSelStart() ||
+            oState.nInitialSelEnd != AkelPad.GetSelEnd())
+        {
+          AkelPad.SetSel(oState.nInitialSelStart, oState.nInitialSelEnd);
+        }
 
-      var hEd = AkelPad.GetEditWnd();
-      var nFirstVisibleLine = Edit_GetFirstVisibleLine(hEd);
-      if (oState.nInitialFirstVisibleLine != nFirstVisibleLine)
-      {
-        AkelPad.SendMessage(hEd, EM_LINESCROLL, 0, (oState.nInitialFirstVisibleLine - nFirstVisibleLine));
+        var hEd = AkelPad.GetEditWnd();
+        var nFirstVisibleLine = Edit_GetFirstVisibleLine(hEd);
+        if (oState.nInitialFirstVisibleLine != nFirstVisibleLine)
+        {
+          AkelPad.SendMessage(hEd, EM_LINESCROLL, 0, (oState.nInitialFirstVisibleLine - nFirstVisibleLine));
+        }
       }
     }
   }
@@ -1524,19 +1526,19 @@ function FilesList_Fill(hListWnd, sFilter)
     }
   }
 
-  // Active documents (frames)
-  oState.AkelPadFrames = getAllFrames();
-  n = oState.AkelPadFrames.length;
+  // Active documents (frames + paths)
+  oState.AkelPadActiveFiles = getActiveFiles();
+  n = oState.AkelPadActiveFiles.length;
   for (i = 0; i < n; i++)
   {
-    if (oState.AkelPadFrames[i] != oState.lpTemporaryFrame)
+    if (oState.AkelPadActiveFiles[i].lpFrame != oState.lpTemporaryFrame)
     {
-      fpath = getFrameFileName(oState.AkelPadFrames[i]);
+      fpath = oState.AkelPadActiveFiles[i].path;
       activeFilePaths.push(fpath);
       item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[A] " + item;
-      matches_add_if_match(Consts.nFramesOffset + i, item);
+      matches_add_if_match(Consts.nActiveFilesOffset + i, item);
       ++totalItems;
     }
   }
@@ -1639,12 +1641,17 @@ function FilesList_ActivateSelectedItem(hListWnd)
   {
     var dwFlags = 0x00F;
     var hDocEd = 0;
-    var sFrameFilePath = "";
+    var sFrameFilePath = ":invalid:";
     var result = 0; // success
+
+    if (filePath == undefined || filePath == "")
+    {
+      return -1; // error
+    }
 
     if (oState.lpTemporaryFrame != undefined)
     {
-      if (AkelPad.SendMessage(hWndMain, AKD_FRAMEISVALID, 0, oState.lpTemporaryFrame))
+      if (isFrameValid(oState.lpTemporaryFrame))
       {
         if (oState.lpTemporaryFrame != getCurrentFrame())
           activateFrame(oState.lpTemporaryFrame);
@@ -1691,7 +1698,6 @@ function FilesList_ActivateSelectedItem(hListWnd)
 
   function apply_active_frame(lpFrm)
   {
-    oState.lpActiveFrame = lpFrm;
     oState.nActiveFrameSelStart = AkelPad.GetSelStart();
     oState.nActiveFrameSelEnd = AkelPad.GetSelEnd();
     oState.nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(AkelPad.GetEditWnd());
@@ -1750,14 +1756,32 @@ function FilesList_ActivateSelectedItem(hListWnd)
       open_file(sFullPath);
     }
   }
-  else if (offset >= Consts.nFramesOffset)
+  else if (offset >= Consts.nActiveFilesOffset)
   {
-    var lpFrame = oState.AkelPadFrames[offset - Consts.nFramesOffset];
-    if (lpFrame != oState.lpActiveFrame)
+    var lpExistingFrame = 0;
+    var af = oState.AkelPadActiveFiles[offset - Consts.nActiveFilesOffset];
+
+    //WScript.Echo(af.lpFrame + ", " + getCurrentFrame() + ", " + isFrameValid(af.lpFrame));
+    if (!isFrameValid(af.lpFrame) || getFrameFileName(af.lpFrame) != af.path)
     {
-      activateFrame(lpFrame);
-      apply_active_frame(lpFrame);
-      oState.sLastActivatedFilePath = getFrameFileName(lpFrame);
+      // The af.lpFrame (AkelPad's tab) has been closed while GoToAnything is being shown.
+      // Maybe the same file has been opened in another frame (tab)?
+      lpExistingFrame = getFrameByFullPath(af.path);
+      if (lpExistingFrame)
+        af.lpFrame = lpExistingFrame;
+      else
+        open_file(af.path);
+    }
+    else
+    {
+      lpExistingFrame = af.lpFrame;
+    }
+
+    if (lpExistingFrame && af.lpFrame != getCurrentFrame())
+    {
+      activateFrame(af.lpFrame);
+      apply_active_frame(af.lpFrame);
+      oState.sLastActivatedFilePath = af.path;
     }
   }
 
@@ -2145,20 +2169,23 @@ function showHelp()
   oSys.Call("user32::SetFocus", hWndFilterEdit);
 }
 
-function getAllFrames()
+function getActiveFiles()
 {
+  var activeFiles = [];
   var lpStartFrame = getCurrentFrame();
   var lpFrame = lpStartFrame;
-  var frames = [];
 
   do
   {
-    frames.push(lpFrame);
+    var af = new Object();
+    af.lpFrame = lpFrame;
+    af.path = getFrameFileName(lpFrame);
+    activeFiles.push(af);
     lpFrame = AkelPad.SendMessage(hWndMain, AKD_FRAMEFIND, FWF_PREV, lpFrame);
   }
   while (lpFrame && lpFrame != lpStartFrame);
 
-  return frames;
+  return activeFiles;
 }
 
 function getCurrentFrame()
@@ -2169,6 +2196,11 @@ function getCurrentFrame()
 function getFrameByFullPath(sFullPath)
 {
   return AkelPad.SendMessage(hWndMain, AKD_FRAMEFINDW, FWF_BYFILENAME, sFullPath);
+}
+
+function isFrameValid(lpFrame)
+{
+  return AkelPad.SendMessage(hWndMain, AKD_FRAMEISVALID, 0, lpFrame);
 }
 
 function getFrameFileName(lpFrame)
@@ -2262,7 +2294,7 @@ function getDirectoryFiles()
     directoryFiles = result.files;
   }
 
-  if ((result == undefined) || 
+  if ((result == undefined) ||
       (result.code == 0 && isStartDirInCurrDir))
   {
     // next, process the start directory...
