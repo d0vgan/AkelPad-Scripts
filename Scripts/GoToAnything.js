@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.1
+// Version: 0.7.2
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -81,6 +81,7 @@ var Options = {
   DirFilesStartLevel : 0, // show [D] files from: -1 - none, 0 - current dir, 1 - upper dir, ...
   DirFilesMaxDepth : 4, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
   MaxDirFiles : 5000, // max number of [D] files, handling 5000 items is already slow...
+  DirFilesMaxFileSize : 100*1024*1024, // bigger files will be ignored
   ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
   ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
@@ -1764,7 +1765,7 @@ function FilesList_ActivateSelectedItem(hListWnd)
     //WScript.Echo(af.lpFrame + ", " + getCurrentFrame() + ", " + isFrameValid(af.lpFrame));
     if (!isFrameValid(af.lpFrame) || getFrameFileName(af.lpFrame) != af.path)
     {
-      // The af.lpFrame (AkelPad's tab) has been closed while GoToAnything is being shown.
+      // The af.lpFrame (AkelPad's tab) had been closed while GoToAnything is visible.
       // Maybe the same file has been opened in another frame (tab)?
       lpExistingFrame = getFrameByFullPath(af.path);
       if (lpExistingFrame)
@@ -2312,6 +2313,21 @@ function getDirectoryFiles()
   return directoryFiles;
 }
 
+function getFileSizeFromFindData(lpFindData)
+{
+  var nFileSizeHigh = AkelPad.MemRead(_PtrAdd(lpFindData, 28), DT_DWORD);
+  var nFileSizeLow = AkelPad.MemRead(_PtrAdd(lpFindData, 32),  DT_DWORD);
+  if (nFileSizeLow < 0)
+  {
+    nFileSizeLow += 0x100000000;
+  }
+  if (nFileSizeHigh != 0)
+  {
+    nFileSizeLow += 0x100000000*nFileSizeHigh;
+  }
+  return nFileSizeLow;
+}
+
 function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFiles)
 {
   var NoError = 0;
@@ -2353,6 +2369,9 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
         }
         continue;
       }
+
+      if (getFileSizeFromFindData(lpFindData) > Options.DirFilesMaxFileSize)
+        continue;
 
       s = AkelPad.GetFilePath(s, 4 /*CPF_FILEEXT*/);
       if (!isStringInArray(s.toLowerCase(), excludeFileExts, false))
