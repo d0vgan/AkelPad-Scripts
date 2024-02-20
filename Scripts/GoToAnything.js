@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.2
+// Version: 0.7.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -82,6 +82,18 @@ var Options = {
   DirFilesMaxDepth : 4, // max directory depth of [D] files: 0 - only current dir, 1 - inner dir, ...
   MaxDirFiles : 5000, // max number of [D] files, handling 5000 items is already slow...
   DirFilesMaxFileSize : 100*1024*1024, // bigger files will be ignored
+  DirFilesExcludeDirs : [
+    ".git", ".vs"
+  ], // -- these dirs will be ignored
+  DirFilesExcludeFileExts : [
+    "dll", "exe", "ocx", // executables
+    "7z", "bz2", "cab", "gz", "msi", "rar", "tar", "zip", // archives
+    "bmp", "gif", "ico", "jpe", "jpeg", "jpg", "png", // pictures
+    "avi", "flv", "m2v", "m4v", "mkv", "mp4", "mpeg", "mpg", "mkv", "vob", "wmv", // video
+    "ac3", "flac", "m4a", "mp3", "ogg", "wav", "wma", // audio
+    "chm", "docx", "djv", "djvu", "odb", "odf", "odp", "ods", "odt", "pdf", "ppsx", "ppt", "pptx", "xls", "xlsx", // documents
+    "db", "bin", "iso", "obj", "o" // binaries
+  ], // -- these files will be ignored
   ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
   ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
   IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
@@ -742,17 +754,16 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     if (AkelPad.MemRead(_PtrAdd(lpMIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpMIS->CtlID
     {
       var itemHeight = 20; // default
-      var hFontLB = AkelPad.SendMessage(hWndFilesList, WM_GETFONT, 0, 0);
-      if (hFontLB)
+      if (hGuiFont)
       {
         var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
         if (lpTM)
         {
           var hDC = oSys.Call("user32::GetDC", hWnd);
-          oSys.Call("gdi32::SelectObject", hDC, hFontLB);
+          oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
           oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
           itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
-          itemHeight += 4; // Adjust for spacing as needed
+          itemHeight += 2; // Adjust for spacing as needed
           oSys.Call("User32::ReleaseDC", hWnd, hDC);
           memFree(lpTM);
         }
@@ -783,7 +794,6 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         var y;
         var i;
         var c;
-        //var hFontLB = AkelPad.SendMessage(hWndFilesList, WM_GETFONT, 0, 0);
         var filter = oState.sLastFullFilter;
         var match = oFileListItems[itemID][0];
         var matchType = 0;
@@ -797,7 +807,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         //var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
         var lpSize = memAlloc(16); // sizeof(SIZE)
 
-        //oSys.Call("gdi32::SelectObject", hDC, hFontLB);
+        //oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
         //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
         //itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
 
@@ -835,7 +845,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
         oSys.Call("gdi32::SetBkColor", hDC, crBk);
         x = rcItem.left + 5;
-        y = rcItem.top + 3; //(rcItem.bottom + rcItem.top - itemHeight)/2;
+        y = rcItem.top + 2; //(rcItem.bottom + rcItem.top - itemHeight)/2;
 
         if (filter != undefined && typeof(filter) == "string")
         {
@@ -2269,16 +2279,8 @@ function getDirectoryFiles()
     return directoryFiles;
   }
 
-  var excludeDirs = [".git", ".vs"];
-  var excludeExts = ["dll", "exe", "ocx", // executables
-                     "7z", "bz2", "cab", "gz", "msi", "rar", "tar", "zip", // archives
-                     "bmp", "gif", "ico", "jpe", "jpeg", "jpg", "png", // pictures
-                     "avi", "flv", "m2v", "m4v", "mkv", "mp4", "mpeg", "mpg", "mkv", "vob", "wmv", // video
-                     "ac3", "flac", "m4a", "mp3", "ogg", "wav", "wma", // audio
-                     "chm", "docx", "djv", "djvu", "odb", "odf", "odp", "ods", "odt", "pdf", "ppsx", "ppt", "pptx", "xls", "xlsx", // documents
-                     "db", "bin", "iso", "obj", "o" // binaries
-                    ];
-
+  var excludeDirs = Options.DirFilesExcludeDirs.slice(0); // a copy
+  var excludeFileExts = Options.DirFilesExcludeFileExts;  // a reference
   var result = undefined;
   var isStartDirInCurrDir = false;
 
@@ -2291,7 +2293,7 @@ function getDirectoryFiles()
   if (isStartDirInCurrDir)
   {
     // first, process the current directory...
-    result = getFilesInDir(currDir, excludeExts, excludeDirs, Options.DirFilesMaxDepth, 0);
+    result = getFilesInDir(currDir, excludeFileExts, excludeDirs, Options.DirFilesMaxDepth, 0);
     directoryFiles = result.files;
   }
 
@@ -2304,7 +2306,7 @@ function getDirectoryFiles()
       excludeDirs.push(currDir); // except the current dir
     }
     directoryFiles = directoryFiles.concat(
-      getFilesInDir(startDir, excludeExts, excludeDirs, Options.DirFilesMaxDepth, directoryFiles.length).files);
+      getFilesInDir(startDir, excludeFileExts, excludeDirs, Options.DirFilesMaxDepth, directoryFiles.length).files);
   }
 
   //WScript.Echo("Number of files: " + directoryFiles.length);
