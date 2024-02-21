@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.3
+// Version: 0.7.4
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -365,6 +365,7 @@ function createState()
   s.AkelPadFavourites = [];
   s.AkelPadRecentFiles = [];
   s.lpInitialFrame = getCurrentFrame();
+  s.sInitialFilePath = s.lpInitialFrame != 0 ? getFrameFileName(s.lpInitialFrame) : "";
   s.nInitialSelStart = AkelPad.GetSelStart();
   s.nInitialSelEnd = AkelPad.GetSelEnd();
   s.nInitialFirstVisibleLine = Edit_GetFirstVisibleLine(hWndEdit);
@@ -554,11 +555,11 @@ function runScript()
   {
     if (AkelPad.IsMDI() != WMD_SDI)
     {
-      if (oState.lpTemporaryFrame != undefined)
+      if (isFrameValid(oState.lpTemporaryFrame))
       {
-        AkelPad.SendMessage(hWndMain, AKD_FRAMEDESTROY, 0, oState.lpTemporaryFrame);
-        oState.lpTemporaryFrame = undefined;
+        destroyFrame(oState.lpTemporaryFrame);
       }
+      oState.lpTemporaryFrame = undefined;
       if (isFrameValid(oState.lpInitialFrame))
       {
         if (oState.lpInitialFrame != getCurrentFrame())
@@ -576,6 +577,18 @@ function runScript()
         if (oState.nInitialFirstVisibleLine != nFirstVisibleLine)
         {
           AkelPad.SendMessage(hEd, EM_LINESCROLL, 0, (oState.nInitialFirstVisibleLine - nFirstVisibleLine));
+        }
+      }
+    }
+    else // SDI
+    {
+      if (oState.sInitialFilePath != "")
+      {
+        var lpFrame = getCurrentFrame();
+        if (!isFrameValid(lpFrame) ||
+            getFrameFileName(lpFrame).toLowerCase() != oState.sInitialFilePath.toLowerCase())
+        {
+          AkelPad.OpenFile(oState.sInitialFilePath, 0x00F);
         }
       }
     }
@@ -603,6 +616,24 @@ function runScript()
   {
     restore_initial_tab();
     AkelPad.Call("RecentFiles::Manage");
+  }
+
+  if (AkelPad.IsMDI() != WMD_SDI)
+  {
+    if (isFrameValid(oState.lpTemporaryFrame) && oState.lpTemporaryFrame != getCurrentFrame())
+    {
+      if (oState.ActionItem >= Consts.nDirFilesOffset)
+      {
+        // [D] or [F] or [H] item has been selected
+        activateFrame(oState.lpTemporaryFrame);
+      }
+      else
+      {
+        // either [A] item has been selected or e.g. Alt+F has been pressed
+        destroyFrame(oState.lpTemporaryFrame);
+        oState.lpTemporaryFrame = undefined;
+      }
+    }
   }
 
   oSys.Call("user32::SetFocus", hWndMain);
@@ -879,7 +910,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
           }
         }
 
-        for (i = 0; i < text.length; i++)
+        for (i = 0; i < text.length; ++i)
         {
           crChar = crText;
           switch (matchType)
@@ -1401,7 +1432,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     {
       var t = sFindWhat.replace(/[.*+\-?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
       sFindWhat = "";
-      for (i = 0; i < t.length; i++)
+      for (i = 0; i < t.length; ++i)
       {
         c = t.charAt(i);
         if (c !== " ")
@@ -1409,7 +1440,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
           sFindWhat += c;
           if (c === "\\")
           {
-            i++;
+            ++i;
             sFindWhat += t.charAt(i);
           }
           if (i < t.length - 1)
@@ -1540,7 +1571,7 @@ function FilesList_Fill(hListWnd, sFilter)
   // Active documents (frames + paths)
   oState.AkelPadActiveFiles = getActiveFiles();
   n = oState.AkelPadActiveFiles.length;
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; ++i)
   {
     if (oState.AkelPadActiveFiles[i].lpFrame != oState.lpTemporaryFrame)
     {
@@ -1557,7 +1588,7 @@ function FilesList_Fill(hListWnd, sFilter)
   // Directory files
   oState.DirectoryFiles = getDirectoryFiles();
   n = oState.DirectoryFiles.length;
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; ++i)
   {
     fpath = oState.DirectoryFiles[i];
     if (!isStringInArray(fpath, activeFilePaths, true))
@@ -1582,7 +1613,7 @@ function FilesList_Fill(hListWnd, sFilter)
   // Favourites
   oState.AkelPadFavourites = getFavourites();
   n = oState.AkelPadFavourites.length;
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; ++i)
   {
     fpath = oState.AkelPadFavourites[i];
     if (!isStringInArray(fpath, activeFilePaths, true))
@@ -1598,7 +1629,7 @@ function FilesList_Fill(hListWnd, sFilter)
   // Recent files
   oState.AkelPadRecentFiles = getRecentFiles();
   n = oState.AkelPadRecentFiles.length;
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; ++i)
   {
     fpath = oState.AkelPadRecentFiles[i];
     if (!isStringInArray(fpath, activeFilePaths, true) &&
@@ -1620,7 +1651,7 @@ function FilesList_Fill(hListWnd, sFilter)
   oFileListItems = matches; // [0] - match, [1] - offset, [2] - name
 
   n = oFileListItems.length;
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; ++i)
   {
     FilesList_AddItem(hListWnd, oFileListItems[i][2]);
   }
@@ -1660,19 +1691,16 @@ function FilesList_ActivateSelectedItem(hListWnd)
       return -1; // error
     }
 
-    if (oState.lpTemporaryFrame != undefined)
+    if (isFrameValid(oState.lpTemporaryFrame))
     {
-      if (isFrameValid(oState.lpTemporaryFrame))
-      {
-        if (oState.lpTemporaryFrame != getCurrentFrame())
-          activateFrame(oState.lpTemporaryFrame);
-        hDocEd = AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_DOCEDIT, oState.lpTemporaryFrame);
-        sFrameFilePath = getFrameFileName(oState.lpTemporaryFrame);
-        dwFlags |= 0x100; /* OD_REOPEN */
-      }
-      else
-        oState.lpTemporaryFrame = undefined;
+      if (oState.lpTemporaryFrame != getCurrentFrame())
+        activateFrame(oState.lpTemporaryFrame);
+      hDocEd = AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_DOCEDIT, oState.lpTemporaryFrame);
+      sFrameFilePath = getFrameFileName(oState.lpTemporaryFrame);
+      dwFlags |= 0x100; /* OD_REOPEN */
     }
+    else
+      oState.lpTemporaryFrame = undefined;
 
     if (sFrameFilePath != filePath)
     {
@@ -1724,9 +1752,8 @@ function FilesList_ActivateSelectedItem(hListWnd)
       result = AkelPad.OpenFile(filePath, 0x00F);
     if (result == 0)
     {
-      var lpFrame = getCurrentFrame();
-      oState.lpTemporaryFrame = lpFrame;
-      apply_active_frame(lpFrame);
+      oState.lpTemporaryFrame = getCurrentFrame();
+      apply_active_frame(oState.lpTemporaryFrame);
       oState.sLastActivatedFilePath = filePath;
     }
   }
@@ -1841,7 +1868,7 @@ function MatchFilter(sFilter, sFilePath)
 
   j = 0;
   m = "";
-  for (i = 0; i < sFilter.length; i++)
+  for (i = 0; i < sFilter.length; ++i)
   {
     c = sFilter.substr(i, 1);
     if (c !== " ") // ' ' matches any character
@@ -1871,7 +1898,7 @@ function MatchFilter(sFilter, sFilePath)
 
     j = 0;
     m = "";
-    for (i = 0; i < sFilter.length; i++)
+    for (i = 0; i < sFilter.length; ++i)
     {
       c = sFilter.substr(i, 1);
       if (c !== " ") // ' ' matches any character
@@ -2040,8 +2067,6 @@ function getEnvVar(varName)
   var lpBuffer = memAlloc(8192 * _TSIZE);
   if (lpBuffer)
   {
-    if (oSys == undefined)
-      oSys = AkelPad.SystemFunction();
     oSys.Call("kernel32::GetEnvironmentVariable" + _TCHAR, varName, lpBuffer, 8190);
     varValue = AkelPad.MemRead(lpBuffer, _TSTR);
     memFree(lpBuffer);
@@ -2070,7 +2095,7 @@ function isStringInArray(str, arr, ignoreCase)
     str = str.toLowerCase();
   }
 
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; ++i)
   {
     if (ignoreCase ? str === arr[i].toLowerCase() : str === arr[i])
         return true;
@@ -2085,11 +2110,10 @@ function strTrim(s)
 
 function getNthDepthPath(path, depth)
 {
-  var i;
   var k1;
   var k2;
+  var k = path.length;
 
-  k = path.length;
   for (;;)
   {
     k1 = path.lastIndexOf("\\", k);
@@ -2109,13 +2133,9 @@ function getNthDepthPath(path, depth)
 
 function getFileName(path)
 {
-  var k = -1;
   var k1 = path.lastIndexOf("\\");
   var k2 = path.lastIndexOf("/");
-  if (k1 !== -1)
-    k = (k2 > k1) ? k2 : k1;
-  else if (k2 !== -1)
-    k = k2;
+  var k = (k1 > k2) ? k1 : k2;
 
   if (k !== -1)
     path = path.substr(k + 1);
@@ -2211,6 +2231,8 @@ function getFrameByFullPath(sFullPath)
 
 function isFrameValid(lpFrame)
 {
+  if (lpFrame == undefined || lpFrame == 0)
+    return 0;
   return AkelPad.SendMessage(hWndMain, AKD_FRAMEISVALID, 0, lpFrame);
 }
 
@@ -2222,6 +2244,11 @@ function getFrameFileName(lpFrame)
 function activateFrame(lpFrame)
 {
   AkelPad.SendMessage(hWndMain, AKD_FRAMEACTIVATE, 0, lpFrame);
+}
+
+function destroyFrame(lpFrame)
+{
+  AkelPad.SendMessage(hWndMain, AKD_FRAMEDESTROY, 0, lpFrame);
 }
 
 function getFavFilePath()
@@ -2250,7 +2277,7 @@ function getStartDir()
   if (startDir !== "")
   {
     var i;
-    for (i = Options.DirFilesStartLevel + 1; i > 0 && startDir.length > 3; i--)
+    for (i = Options.DirFilesStartLevel + 1; i > 0 && startDir.length > 3; --i)
     {
       startDir = AkelPad.GetFilePath(startDir, 1 /*CPF_DIR*/);
     }
@@ -2379,8 +2406,7 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
       if (!isStringInArray(s.toLowerCase(), excludeFileExts, false))
       {
         result.files.push(sFullName);
-        totalFiles++;
-        if (totalFiles >= Options.MaxDirFiles)
+        if (++totalFiles >= Options.MaxDirFiles)
         {
           result.code = Error_TooManyFiles;
           break;
@@ -2398,15 +2424,14 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
     return result;
 
   nDirs = dirs.length;
-  for (i = 0; i < nDirs && result.code == NoError; i++)
+  for (i = 0; i < nDirs && result.code == NoError; ++i)
   {
     subresult = getFilesInDir(dirs[i], excludeFileExts, excludeDirs, maxDepth - 1, totalFiles);
     nSubDirs = subresult.files.length;
-    for (j = 0; j < nSubDirs && result.code == NoError; j++)
+    for (j = 0; j < nSubDirs && result.code == NoError; ++j)
     {
       result.files.push(subresult.files[j]);
-      totalFiles++;
-      if (totalFiles >= Options.MaxDirFiles)
+      if (++totalFiles >= Options.MaxDirFiles)
         result.code = Error_TooManyFiles;
     }
     if (subresult.code != NoError)
@@ -2430,7 +2455,7 @@ function getFavourites()
     {
       var i, fpath;
       var fpaths = sFavContent.split("\n");
-      for (i = 0; i < fpaths.length; i++)
+      for (i = 0; i < fpaths.length; ++i)
       {
         fpath = fpaths[i];
         if (fpath.length > 0)
