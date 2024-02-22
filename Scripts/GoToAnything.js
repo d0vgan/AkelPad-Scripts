@@ -341,7 +341,7 @@ var IDC_LB_ITEMS  = 1021;
 function createConsts()
 {
   var c = {
-    nActiveFilesOffset : 2000,
+    nOpenedFilesOffset : 2000,
     nDirFilesOffset : 6000,
     nFavouritesOffset : 56000,
     nRecentFilesOffset : 62000,
@@ -359,7 +359,7 @@ function createState()
   s.ActionItem = undefined;
   s.sLastFullFilter = "";
   s.sLastPartialFilter = "";
-  s.AkelPadActiveFiles = [];
+  s.AkelPadOpenedFiles = [];
   s.DirectoryFiles = [];
   s.LastStartDir = "";
   s.AkelPadFavourites = [];
@@ -620,16 +620,39 @@ function runScript()
 
   if (AkelPad.IsMDI() != WMD_SDI)
   {
-    if (isFrameValid(oState.lpTemporaryFrame) && oState.lpTemporaryFrame != getCurrentFrame())
+    if (oState.ActionItem >= Consts.nDirFilesOffset)
     {
-      if (oState.ActionItem >= Consts.nDirFilesOffset)
+      // [D] or [F] or [H] item has been selected
+      if (isFrameValid(oState.lpTemporaryFrame))
       {
-        // [D] or [F] or [H] item has been selected
-        activateFrame(oState.lpTemporaryFrame);
+        if (oState.lpTemporaryFrame != getCurrentFrame())
+          activateFrame(oState.lpTemporaryFrame);
       }
       else
       {
-        // either [A] item has been selected or e.g. Alt+F has been pressed
+        var sFullPath = getFullPathByOffset(oState.ActionItem);
+        if (sFullPath != "" && oFSO.FileExists(sFullPath))
+        {
+          var lpExistingFrame = getFrameByFullPath(sFullPath);
+          if (lpExistingFrame && lpExistingFrame != getCurrentFrame())
+          {
+            activateFrame(lpExistingFrame);
+            oState.sLastActivatedFilePath = sFullPath;
+          }
+          else
+            open_file(sFullPath, false);
+        }
+      }
+    }
+    else
+    {
+      // either [A] item has been selected or e.g. Alt+F has been pressed
+      if (oState.ActionItem >= Consts.nOpenedFilesOffset)
+      {
+        activateOpenedFile(oState.ActionItem, false);
+      }
+      if (isFrameValid(oState.lpTemporaryFrame) && oState.lpTemporaryFrame != getCurrentFrame())
+      {
         destroyFrame(oState.lpTemporaryFrame);
         oState.lpTemporaryFrame = undefined;
       }
@@ -1568,19 +1591,19 @@ function FilesList_Fill(hListWnd, sFilter)
     }
   }
 
-  // Active documents (frames + paths)
-  oState.AkelPadActiveFiles = getActiveFiles();
-  n = oState.AkelPadActiveFiles.length;
+  // Opened documents (frames + paths)
+  oState.AkelPadOpenedFiles = getOpenedFiles();
+  n = oState.AkelPadOpenedFiles.length;
   for (i = 0; i < n; ++i)
   {
-    if (oState.AkelPadActiveFiles[i].lpFrame != oState.lpTemporaryFrame)
+    if (oState.AkelPadOpenedFiles[i].lpFrame != oState.lpTemporaryFrame)
     {
-      fpath = oState.AkelPadActiveFiles[i].path;
+      fpath = oState.AkelPadOpenedFiles[i].path;
       activeFilePaths.push(fpath);
       item = getNthDepthPath(fpath, Options.VisualPathDepth);
       if (Options.ShowItemPrefixes)
         item = "[A] " + item;
-      matches_add_if_match(Consts.nActiveFilesOffset + i, item);
+      matches_add_if_match(Consts.nOpenedFilesOffset + i, item);
       ++totalItems;
     }
   }
@@ -1675,152 +1698,160 @@ function FilesList_Fill(hListWnd, sFilter)
   }
 }
 
+function apply_active_frame(lpFrm)
+{
+  oState.nActiveFrameSelStart = AkelPad.GetSelStart();
+  oState.nActiveFrameSelEnd = AkelPad.GetSelEnd();
+  oState.nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(AkelPad.GetEditWnd());
+  ApplyFilter(undefined, oState.sLastFullFilter, 0);
+}
+
+function open_file_in_temp_tab(filePath)
+{
+  var dwFlags = 0x00F;
+  var hDocEd = 0;
+  var sFrameFilePath = ":invalid:";
+  var result = 0; // success
+
+  if (filePath == undefined || filePath == "")
+  {
+    return -1; // error
+  }
+
+  if (isFrameValid(oState.lpTemporaryFrame))
+  {
+    if (oState.lpTemporaryFrame != getCurrentFrame())
+      activateFrame(oState.lpTemporaryFrame);
+    hDocEd = AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_DOCEDIT, oState.lpTemporaryFrame);
+    sFrameFilePath = getFrameFileName(oState.lpTemporaryFrame);
+    dwFlags |= 0x100; /* OD_REOPEN */
+  }
+  else
+    oState.lpTemporaryFrame = undefined;
+
+  if (sFrameFilePath != filePath)
+  {
+    var lpOpenDocW = memAlloc(_X64 ? 40 : 24); // sizeof(OPENDOCUMENTW)
+    if (lpOpenDocW)
+    {
+      // lpOpenDocW.pFile = sFullPath;
+      AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), AkelPad.MemStrPtr(filePath), _X64 ? DT_QWORD : DT_DWORD);
+      // lpOpenDocW.pWorkDir = NULL;
+      AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 8 : 4), 0, _X64 ? DT_QWORD : DT_DWORD);
+      // lpOpenDocW.dwFlags = dwFlags;
+      AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 16 : 8), dwFlags, DT_DWORD);
+      // lpOpenDocW.nCodePage = 0;
+      AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 20 : 12), 0, DT_DWORD);
+      // lpOpenDocW.bBOM = 0;
+      AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 24 : 16), 0, DT_DWORD);
+      // lpOpenDocW.hDoc = hDocEd;
+      AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 32 : 20), hDocEd, _X64 ? DT_QWORD : DT_DWORD);
+
+      result = AkelPad.SendMessage(hWndMain, AKD_OPENDOCUMENTW, 0, lpOpenDocW);
+      if (result == 0)
+      {
+        Edit_ScrollCaret(AkelPad.GetEditWnd());
+      }
+
+      memFree(lpOpenDocW);
+    }
+    else
+      result = -1; // error
+  }
+
+  return result;
+}
+
+function open_file(filePath, isApplyingActiveFrame)
+{
+  var result = 0; // success
+  if (AkelPad.IsMDI() != WMD_SDI)
+    result = open_file_in_temp_tab(filePath);
+  else
+    result = AkelPad.OpenFile(filePath, 0x00F);
+  if (result == 0)
+  {
+    oState.lpTemporaryFrame = getCurrentFrame();
+    if (isApplyingActiveFrame)
+      apply_active_frame(oState.lpTemporaryFrame);
+    oState.sLastActivatedFilePath = filePath;
+  }
+}
+
+function activateOpenedFile(offset, isApplyingActiveFrame)
+{
+  var lpExistingFrame = 0;
+  var af = oState.AkelPadOpenedFiles[offset - Consts.nOpenedFilesOffset];
+
+  //WScript.Echo(af.lpFrame + ", " + getCurrentFrame() + ", " + isFrameValid(af.lpFrame));
+  if (!isFrameValid(af.lpFrame) || getFrameFileName(af.lpFrame) != af.path)
+  {
+    // The af.lpFrame (AkelPad's tab) had been closed while GoToAnything is visible.
+    // Maybe the same file has been opened in another frame (tab)?
+    isApplyingActiveFrame = false;
+    lpExistingFrame = getFrameByFullPath(af.path);
+    if (lpExistingFrame)
+      af.lpFrame = lpExistingFrame;
+    else
+      open_file(af.path, isApplyingActiveFrame);
+  }
+  else
+  {
+    lpExistingFrame = af.lpFrame;
+  }
+
+  if (lpExistingFrame && af.lpFrame != getCurrentFrame())
+  {
+    activateFrame(af.lpFrame);
+    if (isApplyingActiveFrame)
+      apply_active_frame(af.lpFrame);
+    oState.sLastActivatedFilePath = af.path;
+  }
+}
+
+function getFullPathByOffset(offset)
+{
+  if (offset >= Consts.nRecentFilesOffset)
+    return oState.AkelPadRecentFiles[offset - Consts.nRecentFilesOffset];
+  if (offset >= Consts.nFavouritesOffset)
+    return oState.AkelPadFavourites[offset - Consts.nFavouritesOffset];
+  if (offset >= Consts.nDirFilesOffset)
+    return oState.DirectoryFiles[offset - Consts.nDirFilesOffset];
+  if (offset >= Consts.nOpenedFilesOffset)
+    return oState.AkelPadOpenedFiles[offset - Consts.nOpenedFilesOffset].path;
+  return "";
+}
+
 function FilesList_ActivateSelectedItem(hListWnd)
 {
   var offset = FilesList_GetCurSelData(hListWnd);
-
-  function open_file_in_temp_tab(filePath)
+  if (offset >= Consts.nDirFilesOffset)
   {
-    var dwFlags = 0x00F;
-    var hDocEd = 0;
-    var sFrameFilePath = ":invalid:";
-    var result = 0; // success
-
-    if (filePath == undefined || filePath == "")
+    var sFullPath = getFullPathByOffset(offset);
+    if (sFullPath != "")
     {
-      return -1; // error
-    }
-
-    if (isFrameValid(oState.lpTemporaryFrame))
-    {
-      if (oState.lpTemporaryFrame != getCurrentFrame())
-        activateFrame(oState.lpTemporaryFrame);
-      hDocEd = AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_DOCEDIT, oState.lpTemporaryFrame);
-      sFrameFilePath = getFrameFileName(oState.lpTemporaryFrame);
-      dwFlags |= 0x100; /* OD_REOPEN */
-    }
-    else
-      oState.lpTemporaryFrame = undefined;
-
-    if (sFrameFilePath != filePath)
-    {
-      var lpOpenDocW = memAlloc(_X64 ? 40 : 24); // sizeof(OPENDOCUMENTW)
-      if (lpOpenDocW)
+      if (oFSO.FileExists(sFullPath))
       {
-        // lpOpenDocW.pFile = sFullPath;
-        AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), AkelPad.MemStrPtr(filePath), _X64 ? DT_QWORD : DT_DWORD);
-        // lpOpenDocW.pWorkDir = NULL;
-        AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 8 : 4), 0, _X64 ? DT_QWORD : DT_DWORD);
-        // lpOpenDocW.dwFlags = dwFlags;
-        AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 16 : 8), dwFlags, DT_DWORD);
-        // lpOpenDocW.nCodePage = 0;
-        AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 20 : 12), 0, DT_DWORD);
-        // lpOpenDocW.bBOM = 0;
-        AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 24 : 16), 0, DT_DWORD);
-        // lpOpenDocW.hDoc = hDocEd;
-        AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 32 : 20), hDocEd, _X64 ? DT_QWORD : DT_DWORD);
-
-        result = AkelPad.SendMessage(hWndMain, AKD_OPENDOCUMENTW, 0, lpOpenDocW);
-        if (result == 0)
+        if (oState.sLastActivatedFilePath == undefined || oState.sLastActivatedFilePath != sFullPath)
         {
-          Edit_ScrollCaret(AkelPad.GetEditWnd());
+          open_file(sFullPath, true);
         }
-
-        memFree(lpOpenDocW);
       }
-      else
-        result = -1; // error
-    }
-
-    return result;
-  }
-
-  function apply_active_frame(lpFrm)
-  {
-    oState.nActiveFrameSelStart = AkelPad.GetSelStart();
-    oState.nActiveFrameSelEnd = AkelPad.GetSelEnd();
-    oState.nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(AkelPad.GetEditWnd());
-    ApplyFilter(undefined, oState.sLastFullFilter, 0);
-  }
-
-  function open_file(filePath)
-  {
-    var result = 0; // success
-    if (AkelPad.IsMDI() != WMD_SDI)
-      result = open_file_in_temp_tab(filePath);
-    else
-      result = AkelPad.OpenFile(filePath, 0x00F);
-    if (result == 0)
-    {
-      oState.lpTemporaryFrame = getCurrentFrame();
-      apply_active_frame(oState.lpTemporaryFrame);
-      oState.sLastActivatedFilePath = filePath;
-    }
-  }
-
-  if (offset >= Consts.nRecentFilesOffset)
-  {
-    var sFullPath = oState.AkelPadRecentFiles[offset - Consts.nRecentFilesOffset];
-    if (oState.sLastActivatedFilePath == undefined || oState.sLastActivatedFilePath != sFullPath)
-    {
-      open_file(sFullPath);
-    }
-  }
-  else if (offset >= Consts.nFavouritesOffset)
-  {
-    var sFullPath = oState.AkelPadFavourites[offset - Consts.nFavouritesOffset];
-    if (!Options.FoldersInFavourites || oFSO.FileExists(sFullPath))
-    {
-      if (oState.sLastActivatedFilePath == undefined || oState.sLastActivatedFilePath != sFullPath)
+      else if ((offset >= Consts.nFavouritesOffset && offset < Consts.nRecentFilesOffset) &&
+               (Options.FoldersInFavourites && oFSO.FolderExists(sFullPath)))
       {
-        open_file(sFullPath);
+        AkelPad.Call("Explorer::Main", 1, sFullPath);
+        if (oSys.Call("user32::SetForegroundWindow", hWndScriptDlg))
+        {
+          oSys.Call("user32::SetFocus", hWndFilterEdit);
+        }
+        oState.sLastActivatedFilePath = sFullPath;
       }
     }
-    else if (Options.FoldersInFavourites && oFSO.FolderExists(sFullPath))
-    {
-      AkelPad.Call("Explorer::Main", 1, sFullPath);
-      if (oSys.Call("user32::SetForegroundWindow", hWndScriptDlg))
-      {
-        oSys.Call("user32::SetFocus", hWndFilterEdit);
-      }
-      oState.sLastActivatedFilePath = sFullPath;
-    }
   }
-  else if (offset >= Consts.nDirFilesOffset)
+  else if (offset >= Consts.nOpenedFilesOffset)
   {
-    var sFullPath = oState.DirectoryFiles[offset - Consts.nDirFilesOffset];
-    if (oState.sLastActivatedFilePath == undefined || oState.sLastActivatedFilePath != sFullPath)
-    {
-      open_file(sFullPath);
-    }
-  }
-  else if (offset >= Consts.nActiveFilesOffset)
-  {
-    var lpExistingFrame = 0;
-    var af = oState.AkelPadActiveFiles[offset - Consts.nActiveFilesOffset];
-
-    //WScript.Echo(af.lpFrame + ", " + getCurrentFrame() + ", " + isFrameValid(af.lpFrame));
-    if (!isFrameValid(af.lpFrame) || getFrameFileName(af.lpFrame) != af.path)
-    {
-      // The af.lpFrame (AkelPad's tab) had been closed while GoToAnything is visible.
-      // Maybe the same file has been opened in another frame (tab)?
-      lpExistingFrame = getFrameByFullPath(af.path);
-      if (lpExistingFrame)
-        af.lpFrame = lpExistingFrame;
-      else
-        open_file(af.path);
-    }
-    else
-    {
-      lpExistingFrame = af.lpFrame;
-    }
-
-    if (lpExistingFrame && af.lpFrame != getCurrentFrame())
-    {
-      activateFrame(af.lpFrame);
-      apply_active_frame(af.lpFrame);
-      oState.sLastActivatedFilePath = af.path;
-    }
+    activateOpenedFile(offset, true);
   }
 
   if (AkelPad.IsMDI() == WMD_PMDI)
@@ -2200,9 +2231,9 @@ function showHelp()
   oSys.Call("user32::SetFocus", hWndFilterEdit);
 }
 
-function getActiveFiles()
+function getOpenedFiles()
 {
-  var activeFiles = [];
+  var openedFiles = [];
   var lpStartFrame = getCurrentFrame();
   var lpFrame = lpStartFrame;
 
@@ -2211,12 +2242,12 @@ function getActiveFiles()
     var af = new Object();
     af.lpFrame = lpFrame;
     af.path = getFrameFileName(lpFrame);
-    activeFiles.push(af);
+    openedFiles.push(af);
     lpFrame = AkelPad.SendMessage(hWndMain, AKD_FRAMEFIND, FWF_PREV, lpFrame);
   }
   while (lpFrame && lpFrame != lpStartFrame);
 
-  return activeFiles;
+  return openedFiles;
 }
 
 function getCurrentFrame()
