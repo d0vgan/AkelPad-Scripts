@@ -101,8 +101,12 @@ var Options = {
   TextMatchColor : 0x0040FF, // color of the matching parts of file names: 0xBBGGRR
   TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
                                 // or specify "" to use the TextMatchColor above
-  SelBkColor_ThemeVar : "" // when ApplyColorTheme is true, use the given var's color (e.g. "HighLight_LineBkColor");
-                           // or specify "" to use the system's color
+  SelBkColor_ThemeVar : "HighLight_SelBkColor", // when ApplyColorTheme is true, use the given var's color
+                            // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
+                            // or specify "" to use the system's color (COLOR_HIGHLIGHT)
+  SelTextColor_ThemeVar : "HighLight_SelTextColor" // when ApplyColorTheme is true, use the given var's color
+                             // (e.g. "HighLight_BasicTextColor" or "HighLight_SelTextColor");
+                             // or specify "" to use the system's color (COLOR_HIGHLIGHTTEXT)
 };
 
 //Help Text
@@ -315,6 +319,7 @@ var nTextColorRGB = -1;
 var nBkColorRGB = -1;
 var nMatchColorRGB = -1;
 var nSelBkColorRGB = -1;
+var nSelTextColorRGB = -1;
 var hBkColorBrush = 0;
 var hSelBkColorBrush = 0;
 var hGuiFont;
@@ -451,6 +456,11 @@ function runScript()
         {
           hSelBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nSelBkColorRGB);
         }
+      }
+      if (Options.SelTextColor_ThemeVar != undefined && Options.SelTextColor_ThemeVar != "")
+      {
+        var sSelTextColor = getColorThemeVariable(hWndEdit, Options.SelTextColor_ThemeVar);
+        nSelTextColorRGB = getRgbIntFromHex(sSelTextColor);
       }
     }
   }
@@ -867,7 +877,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
         if (itemState & ODS_SELECTED)
         {
-          crText = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHTTEXT);
+          if (nSelTextColorRGB != -1)
+            crText = nSelTextColorRGB;
+          else
+            crText = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHTTEXT);
           if (nSelBkColorRGB != -1 && hSelBkColorBrush != 0)
           {
             crBk = nSelBkColorRGB;
