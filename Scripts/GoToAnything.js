@@ -101,12 +101,12 @@ var Options = {
   TextMatchColor : 0x0040FF, // color of the matching parts of file names: 0xBBGGRR
   TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
                                 // or specify "" to use the TextMatchColor above
-  SelBkColor_ThemeVar : "HighLight_SelBkColor", // when ApplyColorTheme is true, use the given var's color
+  SelTextColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color
+                              // (e.g. "HighLight_BasicTextColor" or "HighLight_SelTextColor");
+                              // or specify "" to use the system's color (COLOR_HIGHLIGHTTEXT)
+  SelBkColor_ThemeVar : ""  // when ApplyColorTheme is true, use the given var's color
                             // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
                             // or specify "" to use the system's color (COLOR_HIGHLIGHT)
-  SelTextColor_ThemeVar : "HighLight_SelTextColor" // when ApplyColorTheme is true, use the given var's color
-                             // (e.g. "HighLight_BasicTextColor" or "HighLight_SelTextColor");
-                             // or specify "" to use the system's color (COLOR_HIGHLIGHTTEXT)
 };
 
 //Help Text
