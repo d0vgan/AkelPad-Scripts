@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.5
+// Version: 0.7.6
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -271,6 +271,7 @@ var FRF_REGEXP = 0x00080000; //Use RegExp
 var FRF_UP = 0x00100000; //Search up
 var FRF_BEGINNING = 0x00200000; //Search from the beginning
 var FRF_CYCLESEARCH = 0x08000000; //Cycle search
+var FRF_TEST = 0x80000000; //Test only. Without text selection
 
 //AkelPad Constants: AkelPad.WindowSubClass
 var WSC_MAINPROC = 1;
@@ -1450,6 +1451,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     var n2 = -1;
     var n = -1;
     var nFlags = FRF_DOWN|FRF_CYCLESEARCH;
+    var arrFindWhat = [];
     if (fromBeginning)
     {
       nFlags |= FRF_BEGINNING;
@@ -1474,40 +1476,64 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     if (Options.IsTextSearchFuzzy)
     {
       var t = sFindWhat.replace(/[.*+\-?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-      sFindWhat = "";
-      for (i = 0; i < t.length; ++i)
+      var sFindWhat1 = ""; // for "lite" fuzzy search
+      var sFindWhat2 = ""; // for "heavy" fuzzy search
+      var reWordSep = /[_\-\(\)\[\]\{\}\\\|\/]/;
+      var nMaxFuzzyLen = 20; // the "heavy" fuzzy search becomes very slow with more characters
+      n = t.length;
+      for (i = 0; i < n; ++i)
       {
         c = t.charAt(i);
         if (c !== " ")
         {
-          sFindWhat += c;
+          sFindWhat1 += c;
+          sFindWhat2 += c;
           if (c === "\\")
           {
             ++i;
-            sFindWhat += t.charAt(i);
+            c = t.charAt(i);
+            sFindWhat1 += c;
+            sFindWhat2 += c;
           }
-          if (i < t.length - 1)
+          if (i < n - 1)
           {
-            sFindWhat += "\\w*?";
+            sFindWhat2 += "\\w*?";
+            if (reWordSep.test(c))
+              sFindWhat1 += "\\w*?";
           }
         }
         else
         {
-          sFindWhat += "(.|[ \\t]*?)"; // ' ' matches any character or spaces
+          // ' ' matches any character or spaces
+          sFindWhat1 += "\\w*?(\\s+?|.)";
+          sFindWhat2 += "(\\s+?|.)";
         }
       }
       nFlags |= FRF_REGEXP|FRF_REGEXPNONEWLINEDOT;
+      arrFindWhat.push(sFindWhat1);
+      if (n <= nMaxFuzzyLen)
+        arrFindWhat.push(sFindWhat2);
+    }
+    else
+    {
+      arrFindWhat.push(sFindWhat);
     }
 
-    n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-    if (fromBeginning && n == n1)
+    for (i = 0; i < arrFindWhat.length; ++i)
     {
-      n = AkelPad.GetSelEnd();
-      if (n == n2)
+      sFindWhat = arrFindWhat[i];
+      n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
+      if (fromBeginning && n == n1)
       {
-        nFlags -= FRF_BEGINNING;
-        AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
+        n = AkelPad.GetSelEnd();
+        if (n == n2)
+        {
+          nFlags -= FRF_BEGINNING;
+          AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
+        }
       }
+      if (n !== -1)
+        break;
     }
   }
   else if (nLine != -1)
