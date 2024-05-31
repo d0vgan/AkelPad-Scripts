@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.6
+// Version: 0.7.7
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -1102,7 +1102,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
     //log.WriteLine("isIgnoringEscKeyUp = false");
     if (wParam == VK_BACK || wParam == VK_DELETE)
     {
-      if ((wParam == VK_BACK) && IsCtrlPressed()) // Ctrl+Backspace
+      if ((wParam == VK_BACK) && IsCtrlPressed()) // Ctrl+BackSpace
       {
         var n1 = LOWORD(AkelPad.SendMessage(hWnd, EM_GETSEL, 0, 0));
         var n2 = HIWORD(AkelPad.SendMessage(hWnd, EM_GETSEL, 0, 0));
@@ -1195,7 +1195,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
   }
   else if (uMsg == WM_CHAR)
   {
-    if ((wParam == 0x7F || wParam == 0x11) && IsCtrlPressed()) // 0x7F is Ctrl+Backspace. 0x11 is Ctrl+Q. Why? Ask M$
+    if ((wParam == 0x7F || wParam == 0x11) && IsCtrlPressed()) // 0x7F is Ctrl+BackSpace. 0x11 is Ctrl+Q. Why? Ask M$
     {
       // do nothing
     }
@@ -1203,8 +1203,15 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
     {
       AkelPad.WindowNextProc(hSubclassFilterEdit, hWnd, uMsg, wParam, lParam);
 
-      oState.sLastFullFilter = GetWndText(hWnd);
-      ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0);
+      if (wParam == 0x03 && IsCtrlPressed()) // 0x03 is Ctrl+C. Why? Ask M$
+      {
+        // do nothing
+      }
+      else
+      {
+        oState.sLastFullFilter = GetWndText(hWnd);
+        ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0);
+      }
     }
 
     AkelPad.WindowNoNextProc(hSubclassFilterEdit);
@@ -1475,44 +1482,70 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     }
     if (Options.IsTextSearchFuzzy)
     {
+      // The "heavy" fuzzy search:
+      //   "abc" matches "abc", "axbzyc", "axyzbzxc" and so on
+      // The "lite" fuzzy search:
+      //   "abc" matches only "abc"
+      //   "a,b,c" matches "a,b,c" and "axy,bzyx,c"
+      //   "a b c" matches "a b c", "a   b  c", "aybxzc" and "axyz  bzy   c"
       var t = sFindWhat.replace(/[.*+\-?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
-      var sFindWhat1 = ""; // for "lite" fuzzy search
-      var sFindWhat2 = ""; // for "heavy" fuzzy search
-      var reWordSep = /[_\-\(\)\[\]\{\}\\\|\/]/;
-      var nMaxFuzzyLen = 20; // the "heavy" fuzzy search becomes very slow with more characters
+      var sFindWhatLite = ""; // for "lite" fuzzy search
+      var sFindWhatHeavy = ""; // for "heavy" fuzzy search
+      var reWordSep = /[_\-\(\)\[\]\{\}\\\|\/\.,;:?><"'!=+~`@#$%^&*]/;
+      var nFuzzyComplexityLite = 0;
+      var nFuzzyComplexityHeavy = 0;
+      var nFuzzySpaces = 0;
+      var nMaxFuzzyComplexity = 20; // the fuzzy search becomes very slow with higher values
+      var nMaxFuzzySpaces = (nFindNext < 0) ? 5 : 10;
       n = t.length;
       for (i = 0; i < n; ++i)
       {
         c = t.charAt(i);
         if (c !== " ")
         {
-          sFindWhat1 += c;
-          sFindWhat2 += c;
+          if (reWordSep.test(c))
+          {
+            sFindWhatLite += "\\w*?";
+            ++nFuzzyComplexityLite;
+          }
+          sFindWhatLite += c;
+          sFindWhatHeavy += c;
           if (c === "\\")
           {
             ++i;
             c = t.charAt(i);
-            sFindWhat1 += c;
-            sFindWhat2 += c;
+            sFindWhatLite += c;
+            sFindWhatHeavy += c;
           }
           if (i < n - 1)
           {
-            sFindWhat2 += "\\w*?";
-            if (reWordSep.test(c))
-              sFindWhat1 += "\\w*?";
+            sFindWhatHeavy += "\\w*?";
+            ++nFuzzyComplexityHeavy;
           }
         }
         else
         {
           // ' ' matches any character or spaces
-          sFindWhat1 += "\\w*?(\\s+?|.)";
-          sFindWhat2 += "(\\s+?|.)";
+          sFindWhatLite += "\\w*?([ \t]+?|.)";
+          sFindWhatHeavy += "([ \t]+?|.)";
+          ++nFuzzySpaces;
+          nFuzzyComplexityHeavy += 1;
+          nFuzzyComplexityLite += 2;
         }
       }
       nFlags |= FRF_REGEXP|FRF_REGEXPNONEWLINEDOT;
-      arrFindWhat.push(sFindWhat1);
-      if (n <= nMaxFuzzyLen)
-        arrFindWhat.push(sFindWhat2);
+      //WScript.Echo("cp_h = " + nFuzzyComplexityHeavy + ", cp_l = " + nFuzzyComplexityLite + ", sp = " + nFuzzySpaces);
+      if (nFuzzyComplexityHeavy <= nMaxFuzzyComplexity &&
+          nFuzzySpaces <= nMaxFuzzySpaces - Math.round(nFuzzyComplexityHeavy/10))
+      {
+        arrFindWhat.push(sFindWhatHeavy);
+      }
+      if (nFuzzyComplexityLite <= nMaxFuzzyComplexity &&
+          nFuzzySpaces <= nMaxFuzzySpaces - Math.round(nFuzzyComplexityLite/10))
+      {
+        arrFindWhat.push(sFindWhatLite);
+      }
+      arrFindWhat.push(t);
     }
     else
     {
@@ -1521,7 +1554,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
     for (i = 0; i < arrFindWhat.length; ++i)
     {
-      sFindWhat = arrFindWhat[i];
+      sFindWhat = arrFindWhat[i]; //WScript.Echo(sFindWhat);
       n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
       if (fromBeginning && n == n1)
       {
