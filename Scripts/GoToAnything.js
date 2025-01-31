@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.7
+// Version: 0.7.8
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -1818,7 +1818,7 @@ function open_file(filePath, flags)
       return -1; // error
 
     // lpOpenDocW.pFile = sFullPath;
-    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), AkelPad.MemStrPtr(filePath), _X64 ? DT_QWORD : DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), filePath, _X64 ? DT_QWORD : DT_DWORD);
     // lpOpenDocW.pWorkDir = NULL;
     AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 8 : 4), 0, _X64 ? DT_QWORD : DT_DWORD);
     // lpOpenDocW.dwFlags = dwFlags;
