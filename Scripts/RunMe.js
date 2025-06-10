@@ -1,6 +1,6 @@
 /**********************************************************************
- *  RunMe.js  v.2.3                                                   *
- *  (C) DV, Jul 2022                                                  *
+ *  RunMe.js  v.2.4                                                   *
+ *  (C) DV, Jun 2025                                                  *
  **********************************************************************/
 /*
  *  Simple usage:
@@ -52,8 +52,10 @@
  *  Note:
  *  When using a compiler or an interpreter, you can specify a command
  *  in a form of "cmd /C your-command-here || pause".
- *  This makes the console window remain in case of error from the
+ *  This makes the console window remain in case of an error from the
  *  compiler/interpreter.
+ *  In case of a trailing " & pause", the console window remains always,
+ *  even without an error.
  *
  **********************************************************************/
 
@@ -62,20 +64,25 @@ var sToolsRootDir = "%a\\..\\";
 
 // user-defined set of file extensions and commands
 var oCommands = {
-  "ini txt nfo coder" :
+  "ini txt nfo coder log" :
     "" /* do nothing */ ,
   "bat cmd" :
-    "cmd /C cd /D \"%d\" && \"%n.%e\" || pause" ,
+    // "cmd /C cd /D \"%d\" && \"%n.%e\" || pause" ,
+    ":run_bat(\"%f\")",
   "ps1" :
     ":run_ps1(\"%f\")" ,
   "js" :
     ":run_js(\"%d\", \"%n.%e\")" ,
+  "java" :
+    ":run_java(\"%f\")" ,
   "c" :
-    "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "tcc\\tcc.exe\" -luser32 -run \"%n.%e\" || pause" ,
+    // "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "tcc\\tcc.exe\" -luser32 -run \"%n.%e\" || pause" ,
+    ":run_c(\"%f\")" ,
   "cpp cc cxx hxx hpp hh h" :
     ":run_cpp(\"%f\")" ,
   "awk" :
-    "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "gawk\\gawk.exe\" -f \"%n.%e\" || pause" ,
+    // "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "gawk\\gawk.exe\" -f \"%n.%e\" || pause" ,
+    ":run_awk(\"%f\")" ,
   "ahk" :
     "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "AutoHotKey\\AutoHotkey32.exe\" \"%n.%e\" || pause" ,
   "nsi nsis" :
@@ -95,6 +102,13 @@ var oCommands = {
 
 
 // user-defined functions...
+function run_bat(filePathName, args) // 'args' is optional
+{
+  var cmd = "cmd /C cd /D \"%d\" && " + buildCommandWithOptionalArgs("\"%n.%e\"", args) + " & pause";
+  cmd = substituteVars(cmd, filePathName);
+  runCommand(cmd, "", 0); // 0 - do not capture output
+}
+
 function run_js(fileDir, fileName, args) // 'args' is optional
 {
   if (fileDir.toUpperCase() == getAkelPadDir(5).toUpperCase())
@@ -110,22 +124,45 @@ function run_js(fileDir, fileName, args) // 'args' is optional
     // call default js interpreter
     var cmd = (fileDir == "") ? fileName : fileDir + "\\" + fileName;
     cmd = buildCommandWithOptionalArgs("\"" + cmd + "\"", args);
-    runCommand(cmd, "", 0); // do not capture output
+    runCommand(cmd, "", 0); // 0 - do not capture output
   }
+}
+
+function run_java(filePathName, args) // 'args' is optional
+{
+  var cmd = "cmd /C cd /D \"%d\" && java " + 
+        buildCommandWithOptionalArgs("\"%n.%e\"", args) + " & pause";
+  cmd = substituteVars(cmd, filePathName);
+  runCommand(cmd, "", 0); // 0 - do not capture output
+}
+
+function run_c(filePathName, args) // 'args' is optional
+{
+  var cmd = "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "tcc\\tcc.exe\" -luser32 -run " +
+        buildCommandWithOptionalArgs("\"%n.%e\"", args) + " & pause";
+  cmd = substituteVars(cmd, filePathName);
+  runCommand(cmd, "", 0); // 0 - do not capture output
+}
+
+function run_awk(filePathName, args) // 'args' is optional
+{
+  var cmd = "cmd /C cd /D \"%d\" && \"" + sToolsRootDir + "gawk\\gawk.exe\" -f " +
+        buildCommandWithOptionalArgs("\"%n.%e\"", args) + " & pause";
+  cmd = substituteVars(cmd, filePathName);
+  runCommand(cmd, "", 0); // 0 - do not capture output
 }
 
 function run_pas(filePathName, args) // 'args' is optional
 {
   var sPath = envGetVar("PATH");
-  var sPathNew = sPath + ";C:\\FPC\\2.6.0\\bin\\i386-win32";
+  var sPathNew = sPath + ";C:\\FPC\\3.2.2\\bin\\i386-win32";
   envSetVar("PATH", sPathNew); // adding path to fpc.exe
-  var cmd1 = "fpc.exe \"%f\""; // compile
+  var cmd1 = "fpc.exe \"%n.%e\""; // compile
   var cmd2 = buildCommandWithOptionalArgs("\"%n.exe\"", args); // run the .exe in Log::Output
 //  var cmd2 = "rundll32.exe shell32,ShellExec_RunDLL \"%n.exe\""; // run the .exe
-  var cmd = "cmd /C " + cmd1 + " && " + cmd2;
+  var cmd = "cmd /C cd /D \"%d\" && " + cmd1 + " && " + cmd2 + " & pause";
   cmd = substituteVars(cmd, filePathName); // pre-process %f, %n etc.
-  setCurrentDir(getFileDir(filePathName));
-  runCommand(cmd); // run
+  runCommand(cmd, "", 0); // 0 - do not capture output
   envSetVar("PATH", sPath); // restoring original PATH
 }
 
@@ -133,16 +170,16 @@ function run_ps1(filePathName, args) // 'args' is optional
 {
   var dir = getFileDir(filePathName);
   var fileNameExt = getFileNameExt(filePathName);
-  var cmd = buildCommandWithOptionalArgs("powershell \".\\" + fileNameExt + "\"", args);
-  runCommand(cmd, dir);
+  var cmd = "cmd /C " + buildCommandWithOptionalArgs("powershell \".\\" + fileNameExt + "\"", args) + " & pause";
+  runCommand(cmd, dir, 0); // 0 - do not capture output
 }
 
 function run_py(filePathName, args) // 'args' is optional
 {
   var dir = getFileDir(filePathName);
   var fileNameExt = getFileNameExt(filePathName);
-  var cmd = buildCommandWithOptionalArgs("python \"" + fileNameExt + "\"", args);
-  runCommand(cmd, dir);
+  var cmd = "cmd /C " + buildCommandWithOptionalArgs("python \"" + fileNameExt + "\"", args) + " & pause";
+  runCommand(cmd, dir, 0); // 0 - do not capture output
 }
 
 function run_cpp(filePathName, args) // 'args' is optional
@@ -151,7 +188,8 @@ function run_cpp(filePathName, args) // 'args' is optional
   if (useMinGW)
   {
     /*  MinGW G++  */
-    var compilerExe = "C:\\MinGW\\bin\\g++.exe";
+    // var compilerExe = "C:\\MinGW\\bin\\g++.exe";
+    var compilerExe = "C:\\msys64\\mingw64\\bin\\g++.exe";
     var compilerDir = getFileDir(compilerExe);
     // cmd1: compile the source file (object file is created)
     var cmd1 = compilerExe + " -c \"%f\" -o \"%d\\%n.o\"";
@@ -160,10 +198,10 @@ function run_cpp(filePathName, args) // 'args' is optional
     // cmd3: run the executable
     var cmd3 = buildCommandWithOptionalArgs("\"%d\\%n.exe\"", args);
     // cmd: the whole command line
-    var cmd = "cmd /C " + cmd1 + " && " + cmd2 + " && " + cmd3 + " || pause";
+    var cmd = "cmd /C " + cmd1 + " && " + cmd2 + " && " + cmd3 + " & pause";
     cmd = substituteVars(cmd, filePathName);
     //WScript.Echo(cmd);
-    runCommand(cmd, compilerDir);
+    runCommand(cmd, compilerDir, 0); // 0 - do not capture output
   }
   else
   {
@@ -209,10 +247,10 @@ function run_cpp(filePathName, args) // 'args' is optional
     var fileDir = getFileDir(filePathName);
     var cmd1 = "cl /O1 \"%f\" /link kernel32.lib user32.lib comctl32.lib gdi32.lib Advapi32.lib ole32.lib Oleaut32.lib";
     var cmd2 = buildCommandWithOptionalArgs("\"%d\\%n.exe\"", args);
-    var cmd = "cmd /C \"call \"" + vcvarsBatPath + "\" x86 && " + cmd1 + " && " + cmd2 + "\"";
+    var cmd = "cmd /C \"call \"" + vcvarsBatPath + "\" x86 && " + cmd1 + " && " + cmd2 + " & pause\"";
     cmd = substituteVars(cmd, filePathName);
     //WScript.Echo(cmd);
-    runCommand(cmd, fileDir);
+    runCommand(cmd, fileDir, 0); // 0 - do not capture output
   }
 }
 
@@ -221,14 +259,14 @@ function run_nsis(filePathName, args) // 'args' is optional
   var sProgramFiles = getProgramFilesDir("x86");
   var cmd = "\"" + sProgramFiles + "\\NSIS\\makensisw.exe\" \"" + filePathName + "\"";
   cmd = buildCommandWithOptionalArgs(cmd, args);
-  runCommand(cmd, "", 0); // do not capture output
+  runCommand(cmd, "", 0); // 0 - do not capture output
 }
 
 function run_anyfile(filePathName, args) // 'args' is optional
 {
   var cmd = "rundll32.exe shell32,ShellExec_RunDLL \"" + filePathName + "\"";
   cmd = buildCommandWithOptionalArgs(cmd, args);
-  runCommand(cmd, "", 0); // do not capture output
+  runCommand(cmd, "", 0); // 0 - do not capture output
 }
 
 /* Explicitly defined extensions to recognize supported file types
@@ -566,6 +604,18 @@ function runCommand(cmd, dir, captureOutput)
     {
       // exclude trailing "|| pause" from 'cmd' if present
       var n = cmd.lastIndexOf("||");
+      cmd = cmd.substr(0, n);
+    }
+    else if (/[ ]*\&\&[ ]*pause[ ]*$/.test(cmd))
+    {
+      // exclude trailing "&& pause" from 'cmd' if present
+      var n = cmd.lastIndexOf("&&");
+      cmd = cmd.substr(0, n);
+    }
+    else if (/[ ]*\&[ ]*pause[ ]*$/.test(cmd))
+    {
+      // exclude trailing "& pause" from 'cmd' if present
+      var n = cmd.lastIndexOf("&");
       cmd = cmd.substr(0, n);
     }
     runLogOutputCmd(cmd, dir);
