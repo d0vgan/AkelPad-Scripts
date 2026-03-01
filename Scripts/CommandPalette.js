@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.6.3
+// Version: 0.6.4
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -477,6 +477,54 @@ function substituteVars(cmd, filePathName)
     cmd = cmd.replace(/%n/g, getFileName(filePathName));
   }
   return cmd;
+}
+
+function getAkelPadDir(adtype)
+{
+  var s = AkelPad.GetAkelDir(adtype);
+  return s;
+}
+
+function getFileDir(filePathName) // file directory w/o trailing '\'
+{
+  var n = filePathName.lastIndexOf("\\");
+  var nn = filePathName.lastIndexOf("/");
+  if (nn > n)  n = nn;
+  var s = "";
+  if (n >= 0)
+    s = filePathName.substr(0, n);
+  else if (isFullPath(filePathName))
+    s = filePathName;
+  return s;
+}
+
+function getFileExt(filePathName) // file extension w/o leading '.'
+{
+  var n = filePathName.lastIndexOf(".");
+  return (n >= 0) ? filePathName.substr(n + 1) : "";
+}
+
+function getFileName(filePathName) // file name w/o extension
+{
+  var n2 = filePathName.lastIndexOf(".");
+  var n1 = filePathName.lastIndexOf("\\");
+  var nn = filePathName.lastIndexOf("/");
+  if (nn > n1)  n1 = nn;
+  var s = "";
+  if (n1 < 0 && n2 < 0)
+    s = filePathName;
+  else if (n1 < 0)
+    s = filePathName.substr(0, n2);
+  else if (n2 < 0)
+    s = filePathName.substr(n1 + 1);
+  else if (n2 > n1)
+    s = filePathName.substr(n1 + 1, n2 - n1 - 1);
+  return s;
+}
+
+function isFullPath(filePathName)
+{
+  return /^([A-Za-z]\:)|(\\\\)/.test(filePathName);
 }
 
 function IsCtrlPressed()
