@@ -1819,7 +1819,10 @@ function open_file(filePath, flags)
     // with 64-bit AkelPad under Windows 11
     var lpFilePathW = memAlloc(2*(filePath.length + 1));
     if (!lpFilePathW)
+    {
+      memFree(lpOpenDocW);
       return -1; // error
+    }
 
     AkelPad.MemCopy(lpFilePathW, filePath, DT_UNICODE);
 
