@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.8
+// Version: 0.7.9
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -1792,8 +1792,6 @@ function open_file(filePath, flags)
 
   function open_file_in_temp_tab(filePath)
   {
-    var res;
-    var lpOpenDocW;
     var dwFlags = 0x00F;
     var hDocEd = 0;
 
@@ -1813,12 +1811,20 @@ function open_file(filePath, flags)
     else
       oState.lpTemporaryFrame = undefined;
 
-    lpOpenDocW = memAlloc(_X64 ? 40 : 24); // sizeof(OPENDOCUMENTW)
+    var lpOpenDocW = memAlloc(_X64 ? 40 : 24); // sizeof(OPENDOCUMENTW)
     if (!lpOpenDocW)
       return -1; // error
 
-    // lpOpenDocW.pFile = sFullPath;
-    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), filePath, _X64 ? DT_QWORD : DT_DWORD);
+    // Note: the usage of lpFilePathW fixes a rare problem
+    // with 64-bit AkelPad under Windows 11
+    var lpFilePathW = memAlloc(2*(filePath.length + 1));
+    if (!lpFilePathW)
+      return -1; // error
+
+    AkelPad.MemCopy(lpFilePathW, filePath, DT_UNICODE);
+
+    // lpOpenDocW.pFile = lpFilePathW;
+    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), lpFilePathW, _X64 ? DT_QWORD : DT_DWORD);
     // lpOpenDocW.pWorkDir = NULL;
     AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 8 : 4), 0, _X64 ? DT_QWORD : DT_DWORD);
     // lpOpenDocW.dwFlags = dwFlags;
@@ -1830,11 +1836,12 @@ function open_file(filePath, flags)
     // lpOpenDocW.hDoc = hDocEd;
     AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 32 : 20), hDocEd, _X64 ? DT_QWORD : DT_DWORD);
 
-    res = AkelPad.SendMessage(hWndMain, AKD_OPENDOCUMENTW, 0, lpOpenDocW);
+    var res = AkelPad.SendMessage(hWndMain, AKD_OPENDOCUMENTW, 0, lpOpenDocW);
     if (res == 0) // success
       Edit_ScrollCaret(AkelPad.GetEditWnd());
 
     memFree(lpOpenDocW);
+    memFree(lpFilePathW);
 
     return res;
   }
