@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.9
+// Version: 0.7.10
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -66,6 +66,7 @@ var Options = {
   Char_GoToText1 : "@",
   Char_GoToText2 : "#",
   Char_GoToLine  : ":",
+  MatchOpenedFilesFirst : true, // opened files are always at the top of the matches
   ApplyColorTheme : true, // use AkelPad's colors
   IsTransparent : false, // whether the popup dialog is tranparent
   OpaquePercent : 80, // applies when IsTransparent is `true`
@@ -746,6 +747,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
     hSubclassFilterEdit = AkelPad.WindowSubClass(hWndFilterEdit, FilterEditCallback);
     hSubclassFilesList = AkelPad.WindowSubClass(hWndFilesList, FilesListCallback);
+  }
+
+  else if (uMsg == WM_SETFOCUS)
+  {
+    oSys.Call("user32::SetFocus", hWndFilterEdit);
+    return 0;
   }
 
   else if (uMsg == WM_KEYDOWN)
@@ -1969,6 +1976,14 @@ function FilesList_ActivateSelectedItem(hListWnd)
 
 function compareByMatch(m1, m2)
 {
+  if (Options.MatchOpenedFilesFirst)
+  {
+    // pre-comparing by offset: opened files first
+    if (m1[1] < Consts.nDirFilesOffset && m2[1] >= Consts.nDirFilesOffset)
+      return -1;
+    if (m1[1] >= Consts.nDirFilesOffset && m2[1] < Consts.nDirFilesOffset)
+      return 1;
+  }
   // first, comparing by match
   if (m1[0] < m2[0])
     return -1;
