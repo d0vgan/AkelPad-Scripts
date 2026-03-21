@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.6.4
+// Version: 0.7
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -27,6 +27,7 @@ A: Edit the file "CommandPalette.lng" manually. This is a text file that
    section. The [Exec] section contains command-line commands.
 */
 
+var ShowWindowTitle = false; // false -> no window title
 var ShowCmdIds = true; // true -> "[4153] Edit: Cut", false -> "Edit: Cut"
 var ApplyColorTheme = true;
 var UseListView = false; // true -> ListView, false -> ListBox
@@ -52,12 +53,15 @@ var WM_CLOSE           = 0x0010;
 var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
+var WM_NCHITTEST       = 0x0084;
+var WM_NCLBUTTONDOWN   = 0x00A1;
 var WM_KEYDOWN         = 0x0100;
 var WM_CHAR            = 0x0102;
 var WM_SYSKEYDOWN      = 0x0104;
 var WM_COMMAND         = 0x0111;
 var WM_CTLCOLOREDIT    = 0x0133;
 var WM_CTLCOLORLISTBOX = 0x0134;
+var WM_LBUTTONDOWN     = 0x0201;
 var NM_DBLCLK          = -3;
 var EM_GETSEL          = 0x00B0;
 var EM_SETSEL          = 0x00B1;
@@ -121,6 +125,9 @@ var HWND_DESKTOP = 0;
 var MB_OK          = 0x0000;
 var MB_ICONERROR   = 0x0010;
 var MB_ICONWARNING = 0x0030;
+var HTCLIENT       = 1;
+var HTCAPTION      = 2;
+var DWLP_MSGRESULT = 0;
 
 var MF_BYCOMMAND  = 0x00000000;
 var MF_BYPOSITION = 0x00000400;
@@ -136,6 +143,7 @@ var WS_CAPTION  = 0x00C00000;
 var WS_VISIBLE  = 0x10000000;
 var WS_CHILD    = 0x40000000;
 var WS_POPUP    = 0x80000000;
+var WS_CLIPSIBLINGS = 0x04000000;
 var ES_AUTOHSCROLL  = 0x0080;
 var LBS_NOTIFY      = 0x0001;
 var LBS_SORT        = 0x0002;
@@ -272,18 +280,26 @@ else
   }
 
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
+  var nEdY = ShowWindowTitle ? 6 : 10;
+  var nEdH = ShowWindowTitle ? 0 : 2;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
-  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight]);
+  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight+nEdH]);
   if (UseListView)
   {
-      var nLvStyle = WS_VISIBLE|WS_CHILD|LVS_NOCOLUMNHEADER|LVS_NOSORTHEADER|LVS_SHOWSELALWAYS|LVS_SINGLESEL|LVS_REPORT;
-    aWnd.push([IDC_LV_ITEMS, "SysListView32", 0,      0, nLvStyle,  2, nEditHeight+6, -1, -1]);
+    var nLvStyle = WS_VISIBLE|WS_CHILD|LVS_NOCOLUMNHEADER|LVS_NOSORTHEADER|LVS_SHOWSELALWAYS|LVS_SINGLESEL|LVS_REPORT;
+    aWnd.push([IDC_LV_ITEMS, "SysListView32", 0,      0, nLvStyle,  2, nEditHeight+nEdY, -1, -1]);
   }
   else
   {
-      var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
-      aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+6, -1, -1]);
+    var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
+    aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+nEdY, -1, -1]);
   }
+
+  var nWndStyle = ShowWindowTitle ? (WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU) : (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_CLIPSIBLINGS);
+  var nWndY = ShowWindowTitle ? 40 : 51;
+
+  if (nDlgHeight > rectMainWnd.H - nWndY)
+    nDlgHeight = rectMainWnd.H - nWndY;
 
   ReadWriteIni(false);
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
@@ -293,9 +309,9 @@ else
                       0,                // dwExStyle
                       sClassName,       // lpClassName
                       sScripName,       // lpWindowName
-                      WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU,  // style
+                      nWndStyle,        // style
                       rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2),  // x
-                      rectMainWnd.Y + 40,   // y
+                      rectMainWnd.Y + nWndY,  // y
                       nDlgWidth,        // nWidth
                       nDlgHeight,       // nHeight
                       hMainWnd,         // hWndParent
@@ -335,7 +351,8 @@ else
         // Example: AkelPad.Call("Coder::HighLight", 2, "#000000", "#9BFF9B");
         try
         {
-          eval("AkelPad.Call(" + ActionItem.cmd + ");");
+          var cmd = substituteVars(ActionItem.cmd, AkelPad.GetEditFile(0)).replace(/\\/g, "\\\\");
+          eval("AkelPad.Call(" + cmd + ");");
         }
         catch (oError)
         {
@@ -621,6 +638,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     hSubclassCommandsList = AkelPad.WindowSubClass(hWndCommandsList, CommandsListCallback);
   }
 
+  else if (uMsg == WM_SETFOCUS)
+  {
+    oSys.Call("user32::SetFocus", hWndFilterEdit);
+    return 0;
+  }
+
   else if (uMsg == WM_KEYDOWN)
   {
     if (wParam == VK_ESCAPE)
@@ -661,33 +684,49 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
   }
 
-  else if (uMsg == WM_CTLCOLOREDIT && isApplyingColorTheme())
+  else if (uMsg == WM_LBUTTONDOWN)
   {
-    if (lParam == hWndFilterEdit)
+    if (!ShowWindowTitle)
     {
-      oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
-      oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
-      return hBkColorBrush;
-    }
-    else
-    {
-      oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
-      return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      oSys.Call("user32::ReleaseCapture");
+      AkelPad.SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+      return TRUE;
     }
   }
 
-  else if (uMsg == WM_CTLCOLORLISTBOX && isApplyingColorTheme())
+  else if (uMsg == WM_CTLCOLOREDIT)
   {
-    if (lParam == hWndCommandsList)
+    if (isApplyingColorTheme())
     {
-      oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
-      oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
-      return hBkColorBrush;
+      if (lParam == hWndFilterEdit)
+      {
+        oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
+        oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
+        return hBkColorBrush;
+      }
+      else
+      {
+        oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
+        return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      }
     }
-    else
+  }
+
+  else if (uMsg == WM_CTLCOLORLISTBOX)
+  {
+    if (isApplyingColorTheme())
     {
-      oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
-      return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      if (lParam == hWndCommandsList)
+      {
+        oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
+        oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
+        return hBkColorBrush;
+      }
+      else
+      {
+        oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
+        return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      }
     }
   }
 
@@ -696,11 +735,6 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     ReadWriteIni(true);
     oSys.Call("user32::DestroyWindow", hWnd); // Destroy dialog
   }
-
-  // else if (uMsg == WM_ACTIVATE)
-  // {
-  //   oSys.Call("user32::SetFocus", hWndFilterEdit);
-  // }
 
   else if (uMsg == WM_DESTROY)
   {
