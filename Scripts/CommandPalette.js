@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.7
+// Version: 0.7.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -27,14 +27,19 @@ A: Edit the file "CommandPalette.lng" manually. This is a text file that
    section. The [Exec] section contains command-line commands.
 */
 
-var ShowWindowTitle = false; // false -> no window title
-var ShowCmdIds = true; // true -> "[4153] Edit: Cut", false -> "Edit: Cut"
-var ApplyColorTheme = true;
-var UseListView = false; // true -> ListView, false -> ListBox
-var CmdTextMaxLength = 0; // auto-calculated
-var CmdShortcutMaxLength = 0; // auto-calculated
-var CmdTotalMaxLength = 0; // auto-calculated
-var CmdTextMaxLengthListBox = 74;
+var Options = {
+  ShowWindowTitle : false, // false -> no window title
+  ShowCmdIds : true, // true -> "[4153] Edit: Cut", false -> "Edit: Cut"
+  ApplyColorTheme : true, // true -> use AkelPad's color theme
+  UseListView : false, // true -> ListView, false -> ListBox
+  CmdTextMaxLength : 0, // 0 -> auto-calculated
+  CmdShortcutMaxLength : 0, // 0 -> auto-calculated
+  CmdTotalMaxLength : 0, // 0 -> auto-calculated
+  CmdTextMaxLengthListBox : 74,
+  WindowWidth  : 600, // width of the popup window
+  WindowHeight : 470, // height of the popup window
+  apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11
+};
 
 // Commands...
 var CMDTYPE_AKELPAD = 1;
@@ -192,14 +197,14 @@ var sCmdFilter0 = "";
 var nCmdIndex = -1;
 var nCmdIndex0 = -1;
 
-if (!UseListView)
+if (!Options.UseListView)
 {
-  CmdTextMaxLength = CmdTextMaxLengthListBox;
-  CmdTotalMaxLength = CmdTextMaxLength;
+  Options.CmdTextMaxLength = Options.CmdTextMaxLengthListBox;
+  Options.CmdTotalMaxLength = Options.CmdTextMaxLength;
 }
 
 ReadLngFile();
-//WScript.Echo("CmdTotalMaxLength = " + CmdTotalMaxLength);
+//WScript.Echo("Options.CmdTotalMaxLength = " + Options.CmdTotalMaxLength);
 
 if (hWndDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sClassName, 0))
 {
@@ -230,8 +235,8 @@ else
   var IDC_LB_ITEMS  = 1021;
   var IDC_LV_ITEMS  = 1021;
 
-  var nDlgWidth  = 600;
-  var nDlgHeight = 530;
+  var nDlgWidth  = Options.WindowWidth;
+  var nDlgHeight = Options.WindowHeight;
   var nEditHeight = 20;
 
   var hMainWnd = AkelPad.GetMainWnd();
@@ -256,7 +261,7 @@ else
     {
       nEditHeight = r.Height;
     }
-    if (ApplyColorTheme && AkelPad.IsPluginRunning("Coder::HighLight"))
+    if (Options.ApplyColorTheme && AkelPad.IsPluginRunning("Coder::HighLight"))
     {
       var sTextColor = getColorThemeVariable(hWndEdit, "HighLight_BasicTextColor");
       var sBkColor = getColorThemeVariable(hWndEdit, "HighLight_BasicBkColor");
@@ -279,12 +284,13 @@ else
     // }
   }
 
+  var rectEditWnd = GetWindowRect(hWndEdit);
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
-  var nEdY = ShowWindowTitle ? 6 : 10;
-  var nEdH = ShowWindowTitle ? 0 : 2;
+  var nEdY = Options.ShowWindowTitle ? 6 : 10;
+  var nEdH = Options.ShowWindowTitle ? 0 : 2;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
   aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight+nEdH]);
-  if (UseListView)
+  if (Options.UseListView)
   {
     var nLvStyle = WS_VISIBLE|WS_CHILD|LVS_NOCOLUMNHEADER|LVS_NOSORTHEADER|LVS_SHOWSELALWAYS|LVS_SINGLESEL|LVS_REPORT;
     aWnd.push([IDC_LV_ITEMS, "SysListView32", 0,      0, nLvStyle,  2, nEditHeight+nEdY, -1, -1]);
@@ -295,11 +301,11 @@ else
     aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+nEdY, -1, -1]);
   }
 
-  var nWndStyle = ShowWindowTitle ? (WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU) : (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_CLIPSIBLINGS);
-  var nWndY = ShowWindowTitle ? 40 : 51;
+  var nWndStyle = Options.ShowWindowTitle ? (WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU) : (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_CLIPSIBLINGS);
+  var nWndY = 0; // relative to the editing window
 
-  if (nDlgHeight > rectMainWnd.H - nWndY)
-    nDlgHeight = rectMainWnd.H - nWndY;
+  if (nDlgHeight > rectEditWnd.H - nWndY)
+    nDlgHeight = rectEditWnd.H - nWndY;
 
   ReadWriteIni(false);
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
@@ -311,7 +317,7 @@ else
                       sScripName,       // lpWindowName
                       nWndStyle,        // style
                       rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2),  // x
-                      rectMainWnd.Y + nWndY,  // y
+                      rectEditWnd.Y + nWndY,  // y
                       nDlgWidth,        // nWidth
                       nDlgHeight,       // nHeight
                       hMainWnd,         // hWndParent
@@ -431,7 +437,7 @@ function getRgbIntFromHex(sRgb)
 
 function isApplyingColorTheme()
 {
-  return (ApplyColorTheme && nBkColorRGB != -1 && nTextColorRGB != -1);
+  return (Options.ApplyColorTheme && nBkColorRGB != -1 && nTextColorRGB != -1);
 }
 
 function getRequiredWidthAndHeight(hWndEdit, hFontEdit)
@@ -445,7 +451,7 @@ function getRequiredWidthAndHeight(hWndEdit, hFontEdit)
     if (hDC)
     {
       var S = "";
-      var i = CmdTotalMaxLength;
+      var i = Options.CmdTotalMaxLength;
       while (i != 0)
       {
         S = S + "a";
@@ -590,7 +596,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
 
     hWndFilterEdit = oSys.Call("user32::GetDlgItem", hWnd, IDC_ED_FILTER);
-    if (UseListView)
+    if (Options.UseListView)
     {
       hWndCommandsList = oSys.Call("user32::GetDlgItem", hWnd, IDC_LV_ITEMS);
 
@@ -606,7 +612,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
     ResizeWindow(hWnd, rectWnd.W, H);
 
-    if (UseListView)
+    if (Options.UseListView)
     {
       InitCommandsListView(hWndCommandsList, rectWnd.W);
       if (isApplyingColorTheme())
@@ -686,7 +692,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
   else if (uMsg == WM_LBUTTONDOWN)
   {
-    if (!ShowWindowTitle)
+    if (!Options.ShowWindowTitle)
     {
       oSys.Call("user32::ReleaseCapture");
       AkelPad.SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
@@ -936,7 +942,7 @@ function compareByCommand(a, b)
 
 function getFullCmdText(cmdText, cmdIdx)
 {
-  if (ShowCmdIds)
+  if (Options.ShowCmdIds)
   {
     var oCmd = Commands[cmdIdx];
     if (oCmd.type == CMDTYPE_AKELPAD)
@@ -981,8 +987,8 @@ function getCmdShortcutKey(cmdText)
 
 function InitCommandsListView(hLvWnd, width)
 {
-  var width0 = Math.floor(width*(CmdTextMaxLength - 1)/CmdTotalMaxLength);
-  var width1 = Math.floor(width*(CmdShortcutMaxLength + 1)/CmdTotalMaxLength);
+  var width0 = Math.floor(width*(Options.CmdTextMaxLength - 1)/Options.CmdTotalMaxLength);
+  var width1 = Math.floor(width*(Options.CmdShortcutMaxLength + 1)/Options.CmdTotalMaxLength);
   var lpLvColumn = AkelPad.MemAlloc(_X64 ? 56 : 44); // sizeof(LVCOLUMN)
 
   AkelPad.SendMessage(hLvWnd, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
@@ -1023,7 +1029,7 @@ function CommandsList_GetCurSelItem(hListWnd)
   var n;
   var cmdIdx;
 
-  if (UseListView)
+  if (Options.UseListView)
   {
     n = GetLvFocusedIndex(hListWnd);
     if (n < 0)
@@ -1064,7 +1070,7 @@ function CommandsList_GetCurSelItem(hListWnd)
 
 function CommandsList_SetCurSel(hListWnd, nItem)
 {
-  if (UseListView)
+  if (Options.UseListView)
   {
     var lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
 
@@ -1088,7 +1094,7 @@ function CommandsList_SetCurSel(hListWnd, nItem)
 
 function CommandsList_Clear(hListWnd)
 {
-  if (UseListView)
+  if (Options.UseListView)
     AkelPad.SendMessage(hListWnd, LVM_DELETEALLITEMS, 0, 0);
   else
     AkelPad.SendMessage(hListWnd, LB_RESETCONTENT, 0, 0);
@@ -1100,12 +1106,21 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
   var cmdShortcut;
   var n;
 
-  if (UseListView)
+  if (Options.UseListView)
   {
     var lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
 
     cmdText = getCmdName(getFullCmdText(cmdName, cmdIdx));
     cmdShortcut = getCmdShortcutKey(cmdName);
+
+    var lpCmdTextW = undefined;
+    if (Options.apply_64bit_rare_fix)
+    {
+      // Note: the usage of lpCmdTextW fixes a rare problem
+      // with 64-bit AkelPad under Windows 11
+      lpCmdTextW = AkelPad.MemAlloc(2*(cmdText.length + 1));
+      AkelPad.MemCopy(lpCmdTextW, cmdText, DT_UNICODE);
+    }
 
     // LVITEM.mask:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_TEXT|LVIF_PARAM, DT_DWORD);
@@ -1114,7 +1129,7 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     // LVITEM.iSubItem:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, 8), 0, DT_DWORD);
     // LVITEM.pszText:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), cmdText, DT_QWORD);
+    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdText, DT_QWORD);
     // LVITEM.lParam:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 40 : 32), cmdIdx, DT_DWORD);
     // Inserting an item:
@@ -1132,6 +1147,10 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     AkelPad.SendMessage(hListWnd, LVM_SETITEMTEXTW, i, lpLvItem);
 
     AkelPad.MemFree(lpLvItem);
+    if (Options.apply_64bit_rare_fix)
+    {
+      AkelPad.MemFree(lpCmdTextW);
+    }
   }
   else
   {
@@ -1278,7 +1297,7 @@ function ReadWriteIni(bWrite)
 
 function alignCmdShortcut(cmdText)
 {
-  var nMaxLen = CmdTextMaxLength - (ShowCmdIds ? 7 : 0);
+  var nMaxLen = Options.CmdTextMaxLength - (Options.ShowCmdIds ? 7 : 0);
   var n = cmdText.lastIndexOf("\\t");
   if (n != -1)
   {
@@ -1312,7 +1331,7 @@ function CreateCmdObj(type, cmd, name)
 
 function createCmdObjName(s)
 {
-  if (UseListView)
+  if (Options.UseListView)
   {
     adjustCmdMaxLength(s);
   }
@@ -1327,13 +1346,13 @@ function adjustCmdMaxLength(s)
 {
   var lenText = getCmdName(s).length;
   var lenShortcut = getCmdShortcutKey(s).length;
-  if (ShowCmdIds)
+  if (Options.ShowCmdIds)
     lenText += 7;
-  if (lenText > CmdTextMaxLength)
-    CmdTextMaxLength = lenText;
-  if (lenShortcut > CmdShortcutMaxLength)
-    CmdShortcutMaxLength = lenShortcut;
-  CmdTotalMaxLength = CmdTextMaxLength + CmdShortcutMaxLength + 4;
+  if (lenText > Options.CmdTextMaxLength)
+    Options.CmdTextMaxLength = lenText;
+  if (lenShortcut > Options.CmdShortcutMaxLength)
+    Options.CmdShortcutMaxLength = lenShortcut;
+  Options.CmdTotalMaxLength = Options.CmdTextMaxLength + Options.CmdShortcutMaxLength + 4;
 }
 
 function getByteFromWideChar(c)
