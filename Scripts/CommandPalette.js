@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.7.1
+// Version: 0.7.2
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -35,7 +35,7 @@ var Options = {
   CmdTextMaxLength : 0, // 0 -> auto-calculated
   CmdShortcutMaxLength : 0, // 0 -> auto-calculated
   CmdTotalMaxLength : 0, // 0 -> auto-calculated
-  CmdTextMaxLengthListBox : 74,
+  CmdTextMaxLengthListBox : 74, // note: it affects the window width
   WindowWidth  : 600, // width of the popup window
   WindowHeight : 470, // height of the popup window
   apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11
@@ -67,6 +67,7 @@ var WM_COMMAND         = 0x0111;
 var WM_CTLCOLOREDIT    = 0x0133;
 var WM_CTLCOLORLISTBOX = 0x0134;
 var WM_LBUTTONDOWN     = 0x0201;
+var WM_USER            = 0x0400;
 var NM_DBLCLK          = -3;
 var EM_GETSEL          = 0x00B0;
 var EM_SETSEL          = 0x00B1;
@@ -176,12 +177,21 @@ var DT_DWORD   = 3;
 var DT_WORD    = 4;
 var DT_BYTE    = 5;
 
+var WMD_SDI = 0;
+
+var EOD_SUCCESS = 0;
+var EOD_WINDOWEXIST = -13;
+
 var IDM_FILE_CREATENEWWINDOW       = 4102;
 var IDM_OPTIONS_SINGLEOPEN_PROGRAM = 4256;
 
+var AKD_GOTOW = 1206;
 var AKD_GETMAININFO = 1222;
+var AKD_FRAMEACTIVATE = (WM_USER + 261);
+var AKD_FRAMEFINDW = (WM_USER + 266);
 var MI_SINGLEOPENPROGRAM = 153;
-
+var GT_LINE = 0x1;
+var FWF_BYFILENAME = 5;
 
 // The Program...
 var oSys       = AkelPad.SystemFunction();
@@ -543,6 +553,18 @@ function getFileName(filePathName) // file name w/o extension
   else if (n2 > n1)
     s = filePathName.substr(n1 + 1, n2 - n1 - 1);
   return s;
+}
+
+function getFileNameExt(path)
+{
+  var k1 = path.lastIndexOf("\\");
+  var k2 = path.lastIndexOf("/");
+  var k = (k1 > k2) ? k1 : k2;
+
+  if (k !== -1)
+    path = path.substr(k + 1);
+
+  return path;
 }
 
 function isFullPath(filePathName)
@@ -1387,6 +1409,38 @@ function isUnicodeTextFile(oFSO, filePathName)
   return (n1 == 0xFF && n2 == 0xFE);
 }
 
+function extractCmdFromSection(line, type)
+{
+  var m;
+
+  if (type == CMDTYPE_PLUGIN || type == CMDTYPE_EXEC)
+  {
+    m = line.match(/^\s*"(.+)"\s*=\s*"(.+)"\s*$/);
+    if (!m)
+    {
+      m = line.match(/^\s*'(.+)'\s*=\s*"(.+)"\s*$/);
+      if (!m)
+        m = line.match(/^\s*`(.+)`\s*=\s*"(.+)"\s*$/);
+    }
+  }
+  else if (type == CMDTYPE_SCRIPT)
+  {
+    m = line.match(/^\s*"(.*)"\s*=\s*"(.+)"\s*$/);
+    if (!m)
+    {
+      m = line.match(/^\s*'(.*)'\s*=\s*"(.+)"\s*$/);
+      if (!m)
+        m = line.match(/^\s*`(.*)`\s*=\s*"(.+)"\s*$/);
+    }
+  }
+  else // CMDTYPE_AKELPAD
+  {
+    m = line.match(/^\s*(\w+)\s*=\s*"(.+)"\s*$/);
+  }
+
+  return m;
+}
+
 function ReadLngFile()
 {
   var oFSO     = new ActiveXObject("Scripting.FileSystemObject");
@@ -1400,8 +1454,27 @@ function ReadLngFile()
     var c;
     var s;
     var m;
+    var iFirstErrLine = -1;
     var section = "";
     var oTextStream;
+    var isTooManyErrLines = false;
+    var errLines = [];
+
+    var addErrLine = function(s, iLine)
+    {
+      if (!isTooManyErrLines)
+      {
+        if (errLines.length > 5)
+        {
+          errLines.push("...");
+          isTooManyErrLines = true;
+        }
+        else
+          errLines.push("Line " + iLine + ": " + s);
+      }
+      if (iFirstErrLine == -1)
+        iFirstErrLine = iLine;
+    }
 
     if (isUnicodeTextFile(oFSO, sLngFile))
       oTextStream = oFSO.OpenTextFile(sLngFile, 1, false, -1); // Unicode
@@ -1417,6 +1490,10 @@ function ReadLngFile()
     while (!oTextStream.AtEndOfStream)
     {
       s = oTextStream.ReadLine();
+      if (s.length == 0 || /^\s*$/.test(s))
+      {
+        continue;
+      }
       m = s.match(/^\s*\/\/.*/);
       if (m)
       {
@@ -1432,27 +1509,28 @@ function ReadLngFile()
       }
       if (section == "akelpad")
       {
-        m = s.match(/^\s*(\w+)\s*=\s*"(.+)"\s*$/);
+        m = extractCmdFromSection(s, CMDTYPE_AKELPAD);
         if (m)
         {
           // AkelPad's Command: id = Text
           c = parseInt(m[1]);
           if (isNaN(c))
           {
-            c = oTextStream.Line - 1;
+            iFirstErrLine = oTextStream.Line - 1;
             oTextStream.Close();
-            FatalErr("Command Id is not a number: \"" + m[1] + "\"!\nFile: \"" + sLngFile + "\"\nLine: " + c);
+            FatalErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s + "\n\nCommand Id is not a number: \"" + m[1] + "\"", false);
+            OpenFileEx(sLngFile, iFirstErrLine);
+            WScript.Quit();
           }
           s = createCmdObjName(m[2]);
           Commands.push( CreateCmdObj(CMDTYPE_AKELPAD, c, s) );
           continue;
         }
+        addErrLine(s, oTextStream.Line - 1);
       }
       else if (section == "plugins")
       {
-        m = s.match(/^\s*"(.+)"\s*=\s*"(.+)"\s*$/);
-        if (!m)
-          m = s.match(/^\s*'(.+)'\s*=\s*"(.+)"\s*$/);
+        m = extractCmdFromSection(s, CMDTYPE_PLUGIN);
         if (m)
         {
           // Plugin's Command: Plugin::Method = Text
@@ -1461,12 +1539,11 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_PLUGIN, c, s) );
           continue;
         }
+        addErrLine(s, oTextStream.Line - 1);
       }
       else if (section == "scripts")
       {
-        m = s.match(/^\s*"(.*)"\s*=\s*"(.+)"\s*$/);
-        if (!m)
-          m = s.match(/^\s*'(.*)'\s*=\s*"(.+)"\s*$/);
+        m = extractCmdFromSection(s, CMDTYPE_SCRIPT);
         if (m)
         {
           // Scripts's Command: Script = Text
@@ -1475,12 +1552,11 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_SCRIPT, c, s) );
           continue;
         }
+        addErrLine(s, oTextStream.Line - 1);
       }
       else if (section == "exec")
       {
-        m = s.match(/^\s*"(.+)"\s*=\s*"(.+)"\s*$/);
-        if (!m)
-          m = s.match(/^\s*'(.+)'\s*=\s*"(.+)"\s*$/);
+        m = extractCmdFromSection(s, CMDTYPE_EXEC);
         if (m)
         {
           // Command Line: Command = Text
@@ -1489,9 +1565,25 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_EXEC, c, s) );
           continue;
         }
+        addErrLine(s, oTextStream.Line - 1);
+      }
+      else
+      {
+        iFirstErrLine = oTextStream.Line - 1;
+        oTextStream.Close();
+        FatalErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s, false);
+        OpenFileEx(sLngFile, iFirstErrLine);
+        WScript.Quit();
       }
     }
     oTextStream.Close();
+
+    if (errLines.length != 0)
+    {
+      FatalErr("Unrecognized items in \"" + getFileNameExt(sLngFile) + "\":\n\n" + errLines.join("\n"), false);
+      OpenFileEx(sLngFile, iFirstErrLine);
+      WScript.Quit();
+    }
   }
   else
   {
@@ -1499,8 +1591,36 @@ function ReadLngFile()
   }
 }
 
-function FatalErr(errMsg)
+function FatalErr(errMsg, close)
 {
   AkelPad.MessageBox(AkelPad.GetMainWnd(), errMsg, WScript.ScriptName, MB_OK|MB_ICONERROR);
-  WScript.Quit();
+  if (close === undefined || close === true)
+    WScript.Quit();
+}
+
+function OpenFileEx(fileName, lineNumber)
+{
+  var n = undefined;
+
+  if (AkelPad.IsMDI() != WMD_SDI)
+  {
+    var hMainWnd = AkelPad.GetMainWnd();
+    var lpFrame = AkelPad.SendMessage(hMainWnd, AKD_FRAMEFINDW, FWF_BYFILENAME, fileName);
+    if (lpFrame)
+    {
+      AkelPad.SendMessage(hMainWnd, AKD_FRAMEACTIVATE, 0, lpFrame);
+      n = EOD_SUCCESS;
+    }
+  }
+
+  if (n == undefined)
+  {
+    n = AkelPad.OpenFile(fileName);
+  }
+
+  if (n == EOD_SUCCESS || n == EOD_WINDOWEXIST)
+  {
+    var hMainWnd = AkelPad.GetMainWnd();
+    AkelPad.SendMessage(hMainWnd, AKD_GOTOW, GT_LINE, AkelPad.MemStrPtr(lineNumber.toString() + ":1"));
+  }
 }
