@@ -1,19 +1,36 @@
-var sAkelUpdaterOutputDir = AkelPad.GetAkelDir(1 /*ADTYPE_AKELFILES*/);
-var sAkelUpdaterZip = getTempPathToAkelUpdaterZip();
+updateAkelUpdater();
 
-if (!downloadFile("http://akelpad.sourceforge.net/files/tools/AkelUpdater.zip", sAkelUpdaterZip))
+function updateAkelUpdater()
 {
-  WScript.Echo("ERROR: Could not download AkelUpdater.zip");
-  WScript.Quit();
-}
-if (!unpackZip(sAkelUpdaterZip, sAkelUpdaterOutputDir))
-{
+  var sAkelUpdaterOutputDir = AkelPad.GetAkelDir(1 /*ADTYPE_AKELFILES*/);
+  var sAkelUpdaterZip = getTempPathToAkelUpdaterZip();
+
+  var httpResult = downloadFile("https://akelpad.sourceforge.net/files/tools/AkelUpdater.zip", sAkelUpdaterZip);
+  if (httpResult.status != 200 || httpResult.errorMessage)
+  {
+    var message = "ERROR: Could not download AkelUpdater.zip\n\n  ";
+    if (httpResult.errorMessage)
+    {
+      message += "HTTP error: " + httpResult.errorMessage;
+    }
+    else if (httpResult.status != 200)
+    {
+      message += "HTTP result: readyState=" + httpResult.readyState + ", status=" + httpResult.status;
+    }
+    ShowError(message);
+    WScript.Quit();
+  }
+
+  if (!unpackZip(sAkelUpdaterZip, sAkelUpdaterOutputDir))
+  {
+    deleteFile(sAkelUpdaterZip);
+    ShowError("ERROR: Could not unpack AkelUpdater.zip");
+    WScript.Quit();
+  }
+
   deleteFile(sAkelUpdaterZip);
-  WScript.Echo("ERROR: Could not unpack AkelUpdater.zip");
-  WScript.Quit();
+  ShowMessage("Updated successfully!");
 }
-deleteFile(sAkelUpdaterZip);
-WScript.Echo("Updated successfully!");
 
 function getTempPathToAkelUpdaterZip()
 {
@@ -31,11 +48,18 @@ function getTempPathToAkelUpdaterZip()
 
 function downloadFile(sSourceUrl, sDestFile)
 {
-  var savedOK = false;
+  var httpResult = {
+    readyState: undefined,
+    status: undefined,
+    errorMessage: undefined
+  };
+
   var oXMLHTTP = new ActiveXObject("MSXML2.XMLHTTP");
   oXMLHTTP.onreadystatechange = function() {
-    if (oXMLHTTP.readyState === 4)
+    httpResult.readyState = oXMLHTTP.readyState;
+    if (oXMLHTTP.readyState == 4)
     {
+      httpResult.status = oXMLHTTP.status;
       if (oXMLHTTP.status == 200)
       {
         var oADOStream = new ActiveXObject("ADODB.Stream");
@@ -50,9 +74,16 @@ function downloadFile(sSourceUrl, sDestFile)
     }
   };
 
-  oXMLHTTP.open("GET", sSourceUrl, false);
-  oXMLHTTP.send();
-  return savedOK;
+  try {
+    oXMLHTTP.open("GET", sSourceUrl, false);
+    // adding "User-Agent" to bypass "403 Forbidden" from the file host
+    oXMLHTTP.setRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    oXMLHTTP.send();
+  } catch (e) {
+    httpResult.errorMessage = e.message;
+  }
+
+  return httpResult;
 }
 
 function deleteFile(sFileName)
@@ -75,4 +106,18 @@ function unpackZip(sZipFileName, sOutputDir)
   oShell.NameSpace(sOutputDir).CopyHere(filesInZip, 4 /*No progress dialog*/ + 16 /*Yes to All*/);
   WScript.Sleep(500);
   return true;
+}
+
+function ShowMessage(message, type)
+{
+  if (type == undefined)
+  {
+    type = 0x0000; // MB_OK
+  }
+  AkelPad.MessageBox(AkelPad.GetMainWnd(), message, WScript.ScriptName, type);
+}
+
+function ShowError(message)
+{
+  ShowMessage(message, 0x0010 /*MB_OK|MB_ICONERROR*/);
 }

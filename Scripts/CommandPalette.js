@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.7.2
+// Version: 0.7.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -38,7 +38,7 @@ var Options = {
   CmdTextMaxLengthListBox : 74, // note: it affects the window width
   WindowWidth  : 600, // width of the popup window
   WindowHeight : 470, // height of the popup window
-  apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11
+  apply_64bit_rare_fix : true // true -> fixes a rare problem with 64-bit AkelPad under Windows 11
 };
 
 // Commands...
@@ -1140,7 +1140,8 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     {
       // Note: the usage of lpCmdTextW fixes a rare problem
       // with 64-bit AkelPad under Windows 11
-      lpCmdTextW = AkelPad.MemAlloc(2*(cmdText.length + 1));
+      n = (cmdText.length > cmdShortcut.length) ? cmdText.length : cmdShortcut.length;
+      lpCmdTextW = AkelPad.MemAlloc(2*(n + 1)); // sizeof(WCHAR)*(len + '\0')
       AkelPad.MemCopy(lpCmdTextW, cmdText, DT_UNICODE);
     }
 
@@ -1153,9 +1154,14 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     // LVITEM.pszText:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdText, DT_QWORD);
     // LVITEM.lParam:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 40 : 32), cmdIdx, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 40 : 32), cmdIdx, DT_QWORD);
     // Inserting an item:
     AkelPad.SendMessage(hListWnd, LVM_INSERTITEMW, 0, lpLvItem);
+
+    if (Options.apply_64bit_rare_fix)
+    {
+      AkelPad.MemCopy(lpCmdTextW, cmdShortcut, DT_UNICODE);
+    }
 
     // LVITEM.mask:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_TEXT, DT_DWORD);
@@ -1164,7 +1170,7 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     // LVITEM.iSubItem:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, 8), 1, DT_DWORD);
     // LVITEM.pszText:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), cmdShortcut, DT_QWORD);
+    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdShortcut, DT_QWORD);
     // Inserting an item:
     AkelPad.SendMessage(hListWnd, LVM_SETITEMTEXTW, i, lpLvItem);
 
@@ -1476,6 +1482,11 @@ function ReadLngFile()
         iFirstErrLine = iLine;
     }
 
+    var getStreamLine = function(oStream)
+    {
+      return oStream.AtEndOfStream ? oStream.Line : (oStream.Line - 1);
+    }
+
     if (isUnicodeTextFile(oFSO, sLngFile))
       oTextStream = oFSO.OpenTextFile(sLngFile, 1, false, -1); // Unicode
     else
@@ -1516,7 +1527,7 @@ function ReadLngFile()
           c = parseInt(m[1]);
           if (isNaN(c))
           {
-            iFirstErrLine = oTextStream.Line - 1;
+            iFirstErrLine = getStreamLine(oTextStream);
             oTextStream.Close();
             FatalErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s + "\n\nCommand Id is not a number: \"" + m[1] + "\"", false);
             OpenFileEx(sLngFile, iFirstErrLine);
@@ -1526,7 +1537,7 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_AKELPAD, c, s) );
           continue;
         }
-        addErrLine(s, oTextStream.Line - 1);
+        addErrLine(s, getStreamLine(oTextStream));
       }
       else if (section == "plugins")
       {
@@ -1539,7 +1550,7 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_PLUGIN, c, s) );
           continue;
         }
-        addErrLine(s, oTextStream.Line - 1);
+        addErrLine(s, getStreamLine(oTextStream));
       }
       else if (section == "scripts")
       {
@@ -1552,7 +1563,7 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_SCRIPT, c, s) );
           continue;
         }
-        addErrLine(s, oTextStream.Line - 1);
+        addErrLine(s, getStreamLine(oTextStream));
       }
       else if (section == "exec")
       {
@@ -1565,11 +1576,11 @@ function ReadLngFile()
           Commands.push( CreateCmdObj(CMDTYPE_EXEC, c, s) );
           continue;
         }
-        addErrLine(s, oTextStream.Line - 1);
+        addErrLine(s, getStreamLine(oTextStream));
       }
       else
       {
-        iFirstErrLine = oTextStream.Line - 1;
+        iFirstErrLine = getStreamLine(oTextStream);
         oTextStream.Close();
         FatalErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s, false);
         OpenFileEx(sLngFile, iFirstErrLine);
