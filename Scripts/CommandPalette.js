@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.7.3
+// Version: 0.7.4
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -38,7 +38,7 @@ var Options = {
   CmdTextMaxLengthListBox : 74, // note: it affects the window width
   WindowWidth  : 600, // width of the popup window
   WindowHeight : 470, // height of the popup window
-  apply_64bit_rare_fix : true // true -> fixes a rare problem with 64-bit AkelPad under Windows 11
+  apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
 
 // Commands...
@@ -262,7 +262,7 @@ else
   {
     hGuiFont = hFontEdit;
     var r = getRequiredWidthAndHeight(hWndEdit, hFontEdit);
-    // WScript.Echo("r.Width = " + r.Width + "\nr.Height = " + r.Height);
+    //WScript.Echo("r.Width = " + r.Width + "\nr.Height = " + r.Height);
     if (r.Width > 0)
     {
       nDlgWidth = r.Width;
@@ -345,60 +345,90 @@ else
 
   if (ActionItem != undefined)
   {
+    var cmd = ActionItem.cmd;
+
     oSys.Call("user32::SetFocus", hMainWnd);
     if (ActionItem.type == CMDTYPE_AKELPAD)
     {
-      if (ActionItem.cmd == IDM_FILE_CREATENEWWINDOW)
+      if (cmd == IDM_FILE_CREATENEWWINDOW)
       {
-        AkelPad_NewInstance();
+        AkelPad_NewInstance(cmd);
       }
       else
-        AkelPad.Command(ActionItem.cmd);
+        AkelPad.Command(cmd);
     }
     else if (ActionItem.type == CMDTYPE_PLUGIN)
     {
-      if (ActionItem.cmd.indexOf(",") == -1)
+      if (cmd.indexOf(",") == -1)
       {
         // Example: AkelPad.Call("Coder::Settings");
-        AkelPad.Call(ActionItem.cmd);
+        AkelPad.Call(cmd);
       }
       else
       {
         // Example: AkelPad.Call("Coder::HighLight", 2, "#000000", "#9BFF9B");
-        try
-        {
-          var cmd = substituteVars(ActionItem.cmd, AkelPad.GetEditFile(0)).replace(/\\/g, "\\\\");
-          eval("AkelPad.Call(" + cmd + ");");
-        }
-        catch (oError)
-        {
-        }
+        cmd = expandAllVars(cmd).replace(/\\(?=[^\x22]|\x22$)/g, "\\\\");
+        evalCmd("AkelPad.Call(" + cmd + ");");
       }
     }
     else if (ActionItem.type == CMDTYPE_SCRIPT)
     {
-      if (ActionItem.cmd.indexOf(",") == -1)
+      cmd = transformQuotes(cmd);
+      if (cmd.indexOf(",") == -1)
       {
-        AkelPad.Call("Scripts::Main", 1, ActionItem.cmd);
+        // Example: AkelPad.Call("Scripts::Main", 1, "SCRIPT");
+        AkelPad.Call("Scripts::Main", 1, cmd);
       }
       else
       {
         // Example: AkelPad.Call("Scripts::Main", 1, "SCRIPT", "ARGUMENTS");
-        try
-        {
-          eval('AkelPad.Call("Scripts::Main", 1, ' + ActionItem.cmd + ');');
-        }
-        catch (oError)
-        {
-        }
+        cmd = expandAllVars(cmd).replace(/\\(?=[^\x22]|\x22$)/g, "\\\\");
+        evalCmd('AkelPad.Call("Scripts::Main", 1, ' + cmd + ');');
       }
     }
     else if (ActionItem.type == CMDTYPE_EXEC)
     {
-      var cmd = substituteVars(ActionItem.cmd, AkelPad.GetEditFile(0));
-      AkelPad.Exec(cmd);
+      cmd = substituteVars(cmd, AkelPad.GetEditFile(0));
+      if (cmd.substr(0, 1) == ":")
+      {
+        // executing a script's function
+        evalCmd(cmd.substr(1) + ";");
+      }
+      else
+      {
+        // executing an external command
+        AkelPad.Exec(cmd);
+      }
     }
   }
+}
+
+function evalCmd(cmd)
+{
+  //WScript.Echo('About to execute:\n\n' + cmd);
+  try {
+    eval(cmd);
+  }
+  catch(e) {
+    ShowErr("Failed to execute:\n\n" + cmd + "\n\nError: " + e.message);
+  }
+}
+
+function transformQuotes(cmd)
+{
+  // input: `"abc", "123"`
+  // output: "\"abc\", \"123\""
+  return cmd.replace(
+    /`([^`]*)`/g, // `...` or ``
+    function(str_match, str_group1, offset, s) {
+      // str_match - the entire match: `...`
+      // str_group1 - the first matched group: ...
+      // offset - the offset of str_match in s
+      // s - the original string
+      var r = str_group1.replace(/\"/g, "\\\""); // escaping the inner ""
+      return '"' + r + '"'; // replacing the outer `` with ""
+    }
+  );
 }
 
 function getColorThemeVariable(hWndEdit, varName)
@@ -489,6 +519,7 @@ function getRequiredWidthAndHeight(hWndEdit, hFontEdit)
 
 function substituteVars(cmd, filePathName)
 {
+  // substitutes AkelPad-specific variables
   if (cmd.indexOf("%a") >= 0)
   {
     cmd = cmd.replace(/%a/g, getAkelPadDir(0));
@@ -510,6 +541,19 @@ function substituteVars(cmd, filePathName)
     cmd = cmd.replace(/%n/g, getFileName(filePathName));
   }
   return cmd;
+}
+
+function expandEnvironmentVars(cmd)
+{
+  // expands environment variables
+  var wsh = new ActiveXObject("WScript.Shell");
+  return wsh.ExpandEnvironmentStrings(cmd);
+}
+
+function expandAllVars(cmd)
+{
+  // expands environment variables and substitutes AkelPad-specific variables
+  return substituteVars(expandEnvironmentVars(cmd), AkelPad.GetEditFile(0));
 }
 
 function getAkelPadDir(adtype)
@@ -609,7 +653,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
       if (aWnd[i][IDX_HWND] == 0)
       {
-        WScript.Echo("CreateWindowEx() failed for ID = " + aWnd[i][IDX_ID] + ", GetLastError = " + oSys.GetLastError());
+        ShowErr("CreateWindowEx() failed for ID = " + aWnd[i][IDX_ID] + ", Class = " + aWnd[i][IDX_CLASS] + "\n  GetLastError = " + oSys.GetLastError());
         oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
         return 0;
       }
@@ -992,19 +1036,13 @@ function getFullCmdText(cmdText, cmdIdx)
 function getCmdName(cmdText)
 {
   var n = cmdText.lastIndexOf("\\t");
-  if (n != -1)
-    return cmdText.substr(0, n);
-  else
-    return cmdText;
+  return (n != -1) ? cmdText.substr(0, n) : cmdText;
 }
 
 function getCmdShortcutKey(cmdText)
 {
   var n = cmdText.lastIndexOf("\\t");
-  if (n != -1)
-    return cmdText.substr(n+2);
-  else
-    return "";
+  return (n != -1) ? cmdText.substr(n+2) : "";
 }
 
 function InitCommandsListView(hLvWnd, width)
@@ -1088,7 +1126,6 @@ function CommandsList_GetCurSelItem(hListWnd)
 
   return Commands[cmdIdx];
 }
-
 
 function CommandsList_SetCurSel(hListWnd, nItem)
 {
@@ -1252,7 +1289,7 @@ function HIWORD(nParam)
   return ((nParam >> 16) & 0xFFFF);
 }
 
-function AkelPad_NewInstance()
+function AkelPad_NewInstance(cmd)
 {
   var oFSO = new ActiveXObject("Scripting.FileSystemObject");
   var scriptsDir = AkelPad.GetAkelDir(5 /*ADTYPE_SCRIPTS*/);
@@ -1277,12 +1314,12 @@ function AkelPad_NewInstance()
     if (AkelPad.SendMessage(hMainWnd, AKD_GETMAININFO, MI_SINGLEOPENPROGRAM, 0))
     {
       AkelPad.Command(IDM_OPTIONS_SINGLEOPEN_PROGRAM);
-      var hNewMainWnd = AkelPad.Command(ActionItem.cmd);
+      var hNewMainWnd = AkelPad.Command(cmd);
       AkelPad.Command(IDM_OPTIONS_SINGLEOPEN_PROGRAM);
       AkelPad.SendMessage(hNewMainWnd, WM_COMMAND, IDM_OPTIONS_SINGLEOPEN_PROGRAM, 0);
     }
     else
-      AkelPad.Command(ActionItem.cmd);
+      AkelPad.Command(cmd);
   }
 }
 
@@ -1315,7 +1352,7 @@ function ReadWriteIni(bWrite)
       sCmdFilter0 = sCmdFilter;
       nCmdIndex0 = nCmdIndex;
     }
-    catch (oError)
+    catch (e)
     {
     }
 
@@ -1411,50 +1448,30 @@ function isUnicodeTextFile(oFSO, filePathName)
   }
   oTextStream.Close();
 
-  // WScript.Echo(n1 + ", " + n2);
+  //WScript.Echo(n1 + ", " + n2);
   return (n1 == 0xFF && n2 == 0xFE);
 }
 
-function extractCmdFromSection(line, type)
+function getLngFileName(oFSO)
 {
-  var m;
-
-  if (type == CMDTYPE_PLUGIN || type == CMDTYPE_EXEC)
+  var sLngFile;
+  if (oFSO == undefined)
   {
-    m = line.match(/^\s*"(.+)"\s*=\s*"(.+)"\s*$/);
-    if (!m)
-    {
-      m = line.match(/^\s*'(.+)'\s*=\s*"(.+)"\s*$/);
-      if (!m)
-        m = line.match(/^\s*`(.+)`\s*=\s*"(.+)"\s*$/);
-    }
+    oFSO = new ActiveXObject("Scripting.FileSystemObject");
   }
-  else if (type == CMDTYPE_SCRIPT)
-  {
-    m = line.match(/^\s*"(.*)"\s*=\s*"(.+)"\s*$/);
-    if (!m)
-    {
-      m = line.match(/^\s*'(.*)'\s*=\s*"(.+)"\s*$/);
-      if (!m)
-        m = line.match(/^\s*`(.*)`\s*=\s*"(.+)"\s*$/);
-    }
-  }
-  else // CMDTYPE_AKELPAD
-  {
-    m = line.match(/^\s*(\w+)\s*=\s*"(.+)"\s*$/);
-  }
-
-  return m;
-}
-
-function ReadLngFile()
-{
-  var oFSO     = new ActiveXObject("Scripting.FileSystemObject");
-  var sLngFile = WScript.ScriptFullName.replace(/\.js$/i, "_" + AkelPad.GetLangId(LANGID_FULL).toString() + ".lng");
+  sLngFile = WScript.ScriptFullName.replace(/\.js$/i, "_" + AkelPad.GetLangId(LANGID_FULL).toString() + ".lng");
   if (!oFSO.FileExists(sLngFile))
   {
     sLngFile = WScript.ScriptFullName.replace(/\.js$/i, ".lng");
   }
+  return sLngFile;
+}
+
+function ReadLngFile()
+{
+  var oFSO = new ActiveXObject("Scripting.FileSystemObject");
+  var sLngFile = getLngFileName(oFSO);
+
   if (oFSO.FileExists(sLngFile))
   {
     var c;
@@ -1495,7 +1512,8 @@ function ReadLngFile()
     if (oTextStream.AtEndOfStream)
     {
       oTextStream.Close();
-      FatalErr("File is empty:\n\"" + sLngFile + "\"");
+      ShowErr("File is empty:\n\"" + sLngFile + "\"");
+      WScript.Quit();
     }
 
     while (!oTextStream.AtEndOfStream)
@@ -1503,6 +1521,7 @@ function ReadLngFile()
       s = oTextStream.ReadLine();
       if (s.length == 0 || /^\s*$/.test(s))
       {
+        // empty line
         continue;
       }
       m = s.match(/^\s*\/\/.*/);
@@ -1520,19 +1539,11 @@ function ReadLngFile()
       }
       if (section == "akelpad")
       {
-        m = extractCmdFromSection(s, CMDTYPE_AKELPAD);
+        m = s.match(/^\s*(\d+)\s*=\s*"(.+)"\s*$/);
         if (m)
         {
           // AkelPad's Command: id = Text
           c = parseInt(m[1]);
-          if (isNaN(c))
-          {
-            iFirstErrLine = getStreamLine(oTextStream);
-            oTextStream.Close();
-            FatalErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s + "\n\nCommand Id is not a number: \"" + m[1] + "\"", false);
-            OpenFileEx(sLngFile, iFirstErrLine);
-            WScript.Quit();
-          }
           s = createCmdObjName(m[2]);
           Commands.push( CreateCmdObj(CMDTYPE_AKELPAD, c, s) );
           continue;
@@ -1541,12 +1552,12 @@ function ReadLngFile()
       }
       else if (section == "plugins")
       {
-        m = extractCmdFromSection(s, CMDTYPE_PLUGIN);
+        m = s.match(/^\s*(["'\x60])(.+)\1\s*=\s*"(.+)"\s*$/); // \x60 is `
         if (m)
         {
           // Plugin's Command: Plugin::Method = Text
-          c = m[1];
-          s = createCmdObjName(m[2]);
+          c = m[2];
+          s = createCmdObjName(m[3]);
           Commands.push( CreateCmdObj(CMDTYPE_PLUGIN, c, s) );
           continue;
         }
@@ -1554,12 +1565,12 @@ function ReadLngFile()
       }
       else if (section == "scripts")
       {
-        m = extractCmdFromSection(s, CMDTYPE_SCRIPT);
+        m = s.match(/^\s*(["'\x60])(.*)\1\s*=\s*"(.+)"\s*$/); // \x60 is `
         if (m)
         {
           // Scripts's Command: Script = Text
-          c = m[1].replace(/\`/g, "\"");
-          s = createCmdObjName(m[2]);
+          c = m[2];
+          s = createCmdObjName(m[3]);
           Commands.push( CreateCmdObj(CMDTYPE_SCRIPT, c, s) );
           continue;
         }
@@ -1567,12 +1578,12 @@ function ReadLngFile()
       }
       else if (section == "exec")
       {
-        m = extractCmdFromSection(s, CMDTYPE_EXEC);
+        m = s.match(/^\s*(["'\x60])(.+)\1\s*=\s*"(.+)"\s*$/); // \x60 is `
         if (m)
         {
           // Command Line: Command = Text
-          c = m[1];
-          s = createCmdObjName(m[2]);
+          c = m[2];
+          s = createCmdObjName(m[3]);
           Commands.push( CreateCmdObj(CMDTYPE_EXEC, c, s) );
           continue;
         }
@@ -1582,7 +1593,7 @@ function ReadLngFile()
       {
         iFirstErrLine = getStreamLine(oTextStream);
         oTextStream.Close();
-        FatalErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s, false);
+        ShowErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s);
         OpenFileEx(sLngFile, iFirstErrLine);
         WScript.Quit();
       }
@@ -1591,22 +1602,21 @@ function ReadLngFile()
 
     if (errLines.length != 0)
     {
-      FatalErr("Unrecognized items in \"" + getFileNameExt(sLngFile) + "\":\n\n" + errLines.join("\n"), false);
+      ShowErr("Unrecognized items in \"" + getFileNameExt(sLngFile) + "\":\n\n" + errLines.join("\n"));
       OpenFileEx(sLngFile, iFirstErrLine);
       WScript.Quit();
     }
   }
   else
   {
-    FatalErr("File not found:\n\"" + sLngFile + "\"");
+    ShowErr("File not found:\n\"" + sLngFile + "\"");
+    WScript.Quit();
   }
 }
 
-function FatalErr(errMsg, close)
+function ShowErr(errMsg)
 {
   AkelPad.MessageBox(AkelPad.GetMainWnd(), errMsg, WScript.ScriptName, MB_OK|MB_ICONERROR);
-  if (close === undefined || close === true)
-    WScript.Quit();
 }
 
 function OpenFileEx(fileName, lineNumber)
@@ -1629,9 +1639,14 @@ function OpenFileEx(fileName, lineNumber)
     n = AkelPad.OpenFile(fileName);
   }
 
-  if (n == EOD_SUCCESS || n == EOD_WINDOWEXIST)
+  if ((n == EOD_SUCCESS || n == EOD_WINDOWEXIST) && (lineNumber != undefined))
   {
     var hMainWnd = AkelPad.GetMainWnd();
     AkelPad.SendMessage(hMainWnd, AKD_GOTOW, GT_LINE, AkelPad.MemStrPtr(lineNumber.toString() + ":1"));
   }
+}
+
+function OpenLngFile()
+{
+  OpenFileEx(getLngFileName(undefined), undefined);
 }
