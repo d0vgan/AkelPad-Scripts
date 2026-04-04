@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.10
+// Version: 0.7.11
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -106,9 +106,11 @@ var Options = {
   SelTextColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color
                               // (e.g. "HighLight_BasicTextColor" or "HighLight_SelTextColor");
                               // or specify "" to use the system's color (COLOR_HIGHLIGHTTEXT)
-  SelBkColor_ThemeVar : ""  // when ApplyColorTheme is true, use the given var's color
+  SelBkColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color
                             // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
                             // or specify "" to use the system's color (COLOR_HIGHLIGHT)
+
+  apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
 
 //Help Text
@@ -183,6 +185,7 @@ var WM_ACTIVATE        = 0x0006;
 var WM_SETFOCUS        = 0x0007;
 var WM_SETREDRAW       = 0x000B;
 var WM_CLOSE           = 0x0010;
+var WM_ERASEBKGND      = 0x0014;
 var WM_DRAWITEM        = 0x002B;
 var WM_MEASUREITEM     = 0x002C;
 var WM_SETFONT         = 0x0030;
@@ -1012,33 +1015,39 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
   }
 
-  else if (uMsg == WM_CTLCOLOREDIT && isApplyingColorTheme())
+  else if (uMsg == WM_CTLCOLOREDIT)
   {
-    if (lParam == hWndFilterEdit)
+    if (isApplyingColorTheme())
     {
-      oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
-      oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
-      return hBkColorBrush;
-    }
-    else
-    {
-      oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
-      return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      if (lParam == hWndFilterEdit)
+      {
+        oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
+        oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
+        return hBkColorBrush;
+      }
+      else
+      {
+        oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
+        return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      }
     }
   }
 
-  else if (uMsg == WM_CTLCOLORLISTBOX && isApplyingColorTheme())
+  else if (uMsg == WM_CTLCOLORLISTBOX)
   {
-    if (lParam == hWndFilesList)
+    if (isApplyingColorTheme())
     {
-      oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
-      oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
-      return hBkColorBrush;
-    }
-    else
-    {
-      oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
-      return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      if (lParam == hWndFilesList)
+      {
+        oSys.Call("gdi32::SetTextColor", wParam, nTextColorRGB);
+        oSys.Call("gdi32::SetBkColor", wParam, nBkColorRGB);
+        return hBkColorBrush;
+      }
+      else
+      {
+        oSys.Call("gdi32::SetBkColor", wParam, oSys.Call("user32::GetSysColor", COLOR_WINDOW));
+        return oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+      }
     }
   }
 
@@ -1413,6 +1422,18 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
     AkelPad.WindowNoNextProc(hSubclassFilesList);
     return 0;
   }
+  /*
+  else if (uMsg == WM_ERASEBKGND)
+  {
+    var lpRect = memAlloc(16); // sizeof(RECT)
+    var hDC = wParam;
+    var hBrushBk = isApplyingColorTheme() ? hBkColorBrush : oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+    oSys.Call("user32::GetClientRect", hWnd, lpRect);
+    oSys.Call("user32::FillRect", hDC, lpRect, hBrushBk);
+    memFree(lpRect);
+    return 1;
+  }
+  */
 }
 
 function ApplyFilter(hListWnd, sFilter, nFindNext)
@@ -1640,7 +1661,7 @@ function FilesList_Clear(hListWnd)
 
 function FilesList_AddItem(hListWnd, fileName)
 {
-  var n = AkelPad.SendMessage(hListWnd, LB_ADDSTRING, 0, fileName);
+  AkelPad.SendMessage(hListWnd, LB_ADDSTRING, 0, fileName);
 }
 
 function FilesList_Fill(hListWnd, sFilter)
@@ -1822,21 +1843,22 @@ function open_file(filePath, flags)
     if (!lpOpenDocW)
       return -1; // error
 
-    // Note: the usage of lpFilePathW fixes a rare problem
-    // with 64-bit AkelPad under Windows 11
-    var lpFilePathW = memAlloc(2*(filePath.length + 1));
-    if (!lpFilePathW)
+    var lpFilePathW = undefined;
+    if (Options.apply_64bit_rare_fix)
     {
-      memFree(lpOpenDocW);
-      return -1; // error
+      lpFilePathW = memAlloc(2*(filePath.length + 1)); // sizeof(WCHAR)*(len + '\0')
+      if (!lpFilePathW)
+      {
+        memFree(lpOpenDocW);
+        return -1; // error
+      }
+      AkelPad.MemCopy(lpFilePathW, filePath, DT_UNICODE);
     }
 
-    AkelPad.MemCopy(lpFilePathW, filePath, DT_UNICODE);
-
-    // lpOpenDocW.pFile = lpFilePathW;
-    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), lpFilePathW, _X64 ? DT_QWORD : DT_DWORD);
+    // lpOpenDocW.pFile = filePath;
+    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, 0), Options.apply_64bit_rare_fix ? lpFilePathW : filePath, DT_QWORD);
     // lpOpenDocW.pWorkDir = NULL;
-    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 8 : 4), 0, _X64 ? DT_QWORD : DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 8 : 4), 0, DT_QWORD);
     // lpOpenDocW.dwFlags = dwFlags;
     AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 16 : 8), dwFlags, DT_DWORD);
     // lpOpenDocW.nCodePage = 0;
@@ -1844,14 +1866,17 @@ function open_file(filePath, flags)
     // lpOpenDocW.bBOM = 0;
     AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 24 : 16), 0, DT_DWORD);
     // lpOpenDocW.hDoc = hDocEd;
-    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 32 : 20), hDocEd, _X64 ? DT_QWORD : DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(lpOpenDocW, _X64 ? 32 : 20), hDocEd, DT_QWORD);
 
     var res = AkelPad.SendMessage(hWndMain, AKD_OPENDOCUMENTW, 0, lpOpenDocW);
     if (res == 0) // success
       Edit_ScrollCaret(AkelPad.GetEditWnd());
 
     memFree(lpOpenDocW);
-    memFree(lpFilePathW);
+    if (Options.apply_64bit_rare_fix)
+    {
+      memFree(lpFilePathW);
+    }
 
     return res;
   }
@@ -2026,8 +2051,10 @@ function MatchFilter(sFilter, sFilePath)
       break;
     }
 
-    while (m.length < j)  m = m + "x";
-    m = m + "v";
+    if (j > m.length)
+      m += createString("x", j - m.length);
+
+    m += "v";
     ++j;
   }
   if (m !== "")
@@ -2053,14 +2080,22 @@ function MatchFilter(sFilter, sFilePath)
       if (j === -1)
         return ""; // no match
 
-      while (m.length < j)  m = m + "x";
-      m = m + "v";
+      if (j > m.length)
+        m += createString("x", j - m.length);
+
+      m += "v";
       ++j;
     }
     return "p2" + m; // partial pathname match
   }
 
   return ""; // no match
+}
+
+function createString(c, N)
+{
+  // N times repeats c
+  return new Array(N + 1).join(c);
 }
 
 function LOWORD(nParam)
@@ -2644,10 +2679,10 @@ function getRecentFiles()
     if (nMaxRecentFiles > 0)
     {
       // STACKRECENTFILE *rfs = *lplpRfS;
-      var lpRfS = AkelPad.MemRead(lplpRfS, _X64 ? DT_QWORD : DT_DWORD);
+      var lpRfS = AkelPad.MemRead(lplpRfS, DT_QWORD);
 
       // RECENTFILE *rf = rfs->first;
-      var lpRf = AkelPad.MemRead(lpRfS, _X64 ? DT_QWORD : DT_DWORD);
+      var lpRf = AkelPad.MemRead(lpRfS, DT_QWORD);
       while (lpRf)
       {
         // int nFilePathLen = rf->nFileLen;
@@ -2667,7 +2702,7 @@ function getRecentFiles()
         }
 
         // rf = rf->next;
-        lpRf = AkelPad.MemRead(lpRf, _X64 ? DT_QWORD : DT_DWORD);
+        lpRf = AkelPad.MemRead(lpRf, DT_QWORD);
       }
     }
     memFree(lplpRfS);
