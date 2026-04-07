@@ -260,6 +260,9 @@ var FWF_BYTABINDEX = 8; //Retrieve frame data by tab item zero based index. lPar
 var FWF_TABNEXT = 9; //Retrieve next tab item frame data. lParam is a frame data pointer.
 var FWF_TABPREV = 10; //Retrieve previous tab item frame data. lParam is a frame data pointer.
 
+//AkelPad Constants: AKD_FRAMEACTIVATE
+var FWA_NOUPDATEORDER = 0x00000001;
+
 //AkelPad Constants: AKD_GETFRAMEINFO
 var FI_WNDEDIT = 2;
 var FI_DOCEDIT = 3;
@@ -340,6 +343,8 @@ var oInitialSettings = undefined;
 //open_file flags
 var fofApplyActiveFrame = 0x01;
 var fofPreviewFile = 0x02;
+var fofFinalChoice = 0x04;
+var fofMainExit = 0x10;
 
 var IDX_ID      = 0;
 var IDX_CLASS   = 1;
@@ -421,7 +426,7 @@ function memFree(lpBuf)
 
 if (hWndScriptDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sScriptClassName, 0))
 {
-  if (! oSys.Call("user32::IsWindowVisible", hWndScriptDlg))
+  if (!oSys.Call("user32::IsWindowVisible", hWndScriptDlg))
     oSys.Call("user32::ShowWindow", hWndScriptDlg, SW_SHOWNA);
   if (oSys.Call("user32::IsIconic", hWndScriptDlg))
     oSys.Call("user32::ShowWindow", hWndScriptDlg, SW_RESTORE);
@@ -586,7 +591,7 @@ function runScript()
       {
         if (oState.lpInitialFrame != getCurrentFrame())
         {
-          activateFrame(oState.lpInitialFrame);
+          activateFrame(oState.lpInitialFrame, 0);
         }
         if (oState.nInitialSelStart != AkelPad.GetSelStart() ||
             oState.nInitialSelEnd != AkelPad.GetSelEnd())
@@ -648,7 +653,7 @@ function runScript()
       if (isFrameValid(oState.lpTemporaryFrame))
       {
         if (oState.lpTemporaryFrame != getCurrentFrame())
-          activateFrame(oState.lpTemporaryFrame);
+          activateFrame(oState.lpTemporaryFrame, 0);
       }
       else
       {
@@ -658,7 +663,7 @@ function runScript()
           var lpExistingFrame = getFrameByFullPath(sFullPath);
           if (lpExistingFrame && lpExistingFrame != getCurrentFrame())
           {
-            activateFrame(lpExistingFrame);
+            activateFrame(lpExistingFrame, 0);
             oState.sLastActivatedFilePath = sFullPath;
           }
           else
@@ -671,7 +676,7 @@ function runScript()
       // either [A] item has been selected or e.g. Alt+F has been pressed
       if (oState.ActionItem >= Consts.nOpenedFilesOffset)
       {
-        activateOpenedFile(oState.ActionItem, 0);
+        activateOpenedFile(oState.ActionItem, fofMainExit);
       }
       if (isFrameValid(oState.lpTemporaryFrame) && oState.lpTemporaryFrame != getCurrentFrame())
       {
@@ -740,7 +745,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0)
       if (Options.AutoPreviewSelectedFile)
       {
-        FilesList_ActivateSelectedItem(hWndFilesList);
+        FilesList_ActivateSelectedItem(hWndFilesList, 0);
       }
     }
     else
@@ -770,10 +775,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     else if (wParam == VK_RETURN)
     {
       oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
-      if (!Options.AutoPreviewSelectedFile)
-      {
-        FilesList_ActivateSelectedItem(hWndFilesList);
-      }
+      FilesList_ActivateSelectedItem(hWndFilesList, fofFinalChoice);
       oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
     }
     //else if (wParam == VK_F1)
@@ -802,10 +804,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (LOWORD(wParam) == IDC_LB_ITEMS)
       {
         oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
-        if (!Options.AutoPreviewSelectedFile)
-        {
-          FilesList_ActivateSelectedItem(hWndFilesList);
-        }
+        FilesList_ActivateSelectedItem(hWndFilesList, fofFinalChoice);
         oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
       }
     }
@@ -1172,7 +1171,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       {
         if (!Options.AutoPreviewSelectedFile)
         {
-          FilesList_ActivateSelectedItem(hWndFilesList);
+          FilesList_ActivateSelectedItem(hWndFilesList, 0);
         }
         if (IsShiftPressed())
         {
@@ -1187,7 +1186,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       {
         if (!Options.AutoPreviewSelectedFile)
         {
-          FilesList_ActivateSelectedItem(hWndFilesList);
+          FilesList_ActivateSelectedItem(hWndFilesList, 0);
         }
         if (IsShiftPressed()) // Ctrl+Shift+Q
         {
@@ -1373,7 +1372,7 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
       AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
       if (Options.AutoPreviewSelectedFile)
       {
-        FilesList_ActivateSelectedItem(hWnd);
+        FilesList_ActivateSelectedItem(hWnd, 0);
       }
       AkelPad.WindowNoNextProc(hSubclassFilesList);
       return 0;
@@ -1417,7 +1416,7 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
     AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
     if (Options.AutoPreviewSelectedFile)
     {
-      FilesList_ActivateSelectedItem(hWnd);
+      FilesList_ActivateSelectedItem(hWnd, 0);
     }
     AkelPad.WindowNoNextProc(hSubclassFilesList);
     return 0;
@@ -1793,7 +1792,7 @@ function FilesList_Fill(hListWnd, sFilter)
     FilesList_SetCurSel(hListWnd, 0);
     if (Options.AutoPreviewSelectedFile)
     {
-      FilesList_ActivateSelectedItem(hListWnd);
+      FilesList_ActivateSelectedItem(hListWnd, 0);
     }
   }
 
@@ -1829,7 +1828,7 @@ function open_file(filePath, flags)
     if (isFrameValid(oState.lpTemporaryFrame))
     {
       if (oState.lpTemporaryFrame != getCurrentFrame())
-        activateFrame(oState.lpTemporaryFrame);
+        activateFrame(oState.lpTemporaryFrame, 0);
       if (getFrameFileName(oState.lpTemporaryFrame) == filePath)
         return 0; // success
 
@@ -1922,6 +1921,9 @@ function activateOpenedFile(offset, flags)
     // Maybe the same file has been opened in another frame (tab)?
     if (flags & fofApplyActiveFrame)
       flags -= fofApplyActiveFrame;
+    if (flags & fofFinalChoice)
+      flags -= fofFinalChoice;
+
     lpExistingFrame = getFrameByFullPath(af.path);
     if (lpExistingFrame)
       af.lpFrame = lpExistingFrame;
@@ -1931,14 +1933,28 @@ function activateOpenedFile(offset, flags)
   else
   {
     lpExistingFrame = af.lpFrame;
+
+    if (flags & fofFinalChoice)
+    {
+      AkelPad.SendMessage(hWndMain, WM_SETREDRAW, FALSE, 0);
+      activateFrame(oState.lpInitialFrame, 0);
+    }
   }
 
   if (lpExistingFrame && af.lpFrame != getCurrentFrame())
   {
-    activateFrame(af.lpFrame);
-    if (flags & fofApplyActiveFrame)
+    activateFrame(af.lpFrame, (flags & (fofFinalChoice | fofMainExit)) ? 0 : FWA_NOUPDATEORDER);
+    if ((flags & fofApplyActiveFrame) && !(flags & (fofFinalChoice | fofMainExit)))
       apply_active_frame(af.lpFrame);
     oState.sLastActivatedFilePath = af.path;
+  }
+
+  if (flags & fofFinalChoice)
+  {
+    AkelPad.SendMessage(hWndMain, WM_SETREDRAW, TRUE, 0);
+    AkelPad.SendMessage(hWndMain, WM_COMMAND, 0, 0);
+    //oSys.Call("user32::InvalidateRect", hWndMain, 0, TRUE);
+    //oSys.Call("user32::UpdateWindow", hWndMain);
   }
 }
 
@@ -1955,11 +1971,14 @@ function getFullPathByOffset(offset)
   return "";
 }
 
-function FilesList_ActivateSelectedItem(hListWnd)
+function FilesList_ActivateSelectedItem(hListWnd, flags)
 {
   var offset = FilesList_GetCurSelData(hListWnd);
   if (offset >= Consts.nDirFilesOffset)
   {
+    if ((flags & fofFinalChoice) != 0 && Options.AutoPreviewSelectedFile)
+      return;
+
     var sFullPath = getFullPathByOffset(offset);
     if (sFullPath != "")
     {
@@ -1984,7 +2003,7 @@ function FilesList_ActivateSelectedItem(hListWnd)
   }
   else if (offset >= Consts.nOpenedFilesOffset)
   {
-    activateOpenedFile(offset, fofApplyActiveFrame | fofPreviewFile);
+    activateOpenedFile(offset, fofApplyActiveFrame | fofPreviewFile | flags);
   }
 
   if (AkelPad.IsMDI() == WMD_PMDI)
@@ -2423,9 +2442,9 @@ function getFrameFileName(lpFrame)
   return AkelPad.MemRead(AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_FILEW, lpFrame), DT_UNICODE);
 }
 
-function activateFrame(lpFrame)
+function activateFrame(lpFrame, nFlags)
 {
-  AkelPad.SendMessage(hWndMain, AKD_FRAMEACTIVATE, 0, lpFrame);
+  AkelPad.SendMessage(hWndMain, AKD_FRAMEACTIVATE, nFlags, lpFrame);
 }
 
 function destroyFrame(lpFrame)
