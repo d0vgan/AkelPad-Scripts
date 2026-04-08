@@ -1925,8 +1925,6 @@ function activateOpenedFile(offset, flags)
     // Maybe the same file has been opened in another frame (tab)?
     if (flags & fofApplyActiveFrame)
       flags -= fofApplyActiveFrame;
-    if (flags & fofFinalChoice)
-      flags -= fofFinalChoice;
 
     lpExistingFrame = getFrameByFullPath(af.path);
     if (lpExistingFrame)
