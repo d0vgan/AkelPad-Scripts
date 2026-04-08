@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.7.4
+// Version: 0.8.0
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -38,6 +38,17 @@ var Options = {
   CmdTextMaxLengthListBox : 74, // note: it affects the window width
   WindowWidth  : 600, // width of the popup window
   WindowHeight : 470, // height of the popup window
+  TextMatchColor : 0x0040FF, // color of the matching parts of commands: 0xBBGGRR
+  TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
+                                // or specify "" to use the TextMatchColor above
+  SelTextColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color
+                              // (e.g. "HighLight_BasicTextColor" or "HighLight_SelTextColor");
+                              // or specify "" to use the system's color (COLOR_HIGHLIGHTTEXT)
+  SelBkColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color
+                            // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
+                            // or specify "" to use the system's color (COLOR_HIGHLIGHT)
+
+  apply_match_color : true, // true -> apply TextMatchColor to the matching parts
   apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
 
@@ -55,6 +66,9 @@ var WM_ACTIVATE        = 0x0006;
 var WM_SETFOCUS        = 0x0007;
 var WM_SETREDRAW       = 0x000B;
 var WM_CLOSE           = 0x0010;
+var WM_ERASEBKGND      = 0x0014;
+var WM_DRAWITEM        = 0x002B;
+var WM_MEASUREITEM     = 0x002C;
 var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
@@ -77,8 +91,6 @@ var LB_RESETCONTENT    = 0x0184;
 var LB_SETCURSEL       = 0x0186;
 var LB_GETCURSEL       = 0x0188;
 var LB_GETTEXT         = 0x0189;
-var LB_GETITEMDATA     = 0x0199;
-var LB_SETITEMDATA     = 0x019A;
 var LBN_DBLCLK         = 2;
 var LVM_SETBKCOLOR     = 0x1001;
 var LVM_DELETEALLITEMS = 0x1009;
@@ -87,6 +99,7 @@ var LVM_ENSUREVISIBLE  = 0x1013;
 var LVM_SETTEXTCOLOR   = 0x1024;
 var LVM_SETTEXTBKCOLOR = 0x1026;
 var LVM_SETITEMSTATE   = 0x102B;
+var LVM_GETSUBITEMRECT = 0x1038;
 var LVM_GETITEMW       = 0x104B;
 var LVM_INSERTITEMW    = 0x104D;
 var LVM_INSERTCOLUMNW  = 0x1061;
@@ -140,6 +153,12 @@ var MF_BYPOSITION = 0x00000400;
 var MF_UNCHECKED  = 0x00000000;
 var MF_CHECKED    = 0x00000008;
 
+var COLOR_WINDOW        = 5;
+var COLOR_WINDOWTEXT    = 8;
+var COLOR_HIGHLIGHT     = 13;
+var COLOR_HIGHLIGHTTEXT = 14;
+
+// Windows Styles
 var WS_TABSTOP  = 0x00010000;
 var WS_SYSMENU  = 0x00080000;
 var WS_HSCROLL  = 0x00100000;
@@ -151,20 +170,33 @@ var WS_CHILD    = 0x40000000;
 var WS_POPUP    = 0x80000000;
 var WS_CLIPSIBLINGS = 0x04000000;
 var ES_AUTOHSCROLL  = 0x0080;
-var LBS_NOTIFY      = 0x0001;
-var LBS_SORT        = 0x0002;
-var LBS_USETABSTOPS = 0x0080;
+var LBS_NOTIFY         = 0x0001;
+var LBS_OWNERDRAWFIXED = 0x0010;
+var LBS_USETABSTOPS    = 0x0080;
+var LBS_NODATA         = 0x2000;
 var LVS_REPORT          = 0x0001;
 var LVS_SINGLESEL       = 0x0004;
 var LVS_SHOWSELALWAYS   = 0x0008;
+var LVS_OWNERDRAWFIXED  = 0x0400;
 var LVS_NOCOLUMNHEADER  = 0x4000;
 var LVS_NOSORTHEADER    = 0x8000;
 var LVS_EX_FULLROWSELECT = 0x0020;
 
+// Owner draw actions
+var ODA_DRAWENTIRE = 0x0001;
+var ODA_SELECT     = 0x0002;
+var ODA_FOCUS      = 0x0004;
+
+// Owner draw state
+var ODS_SELECTED = 0x0001;
+var ODS_DEFAULT = 0x0020;
+
+// Codepages
 var CP_ACP   = 0;
 var CP_OEMCP = 1;
 var CP_UTF8  = 65001;
 
+// LangID
 var LANGID_FULL    = 0;
 var LANGID_PRIMARY = 1;
 var LANGID_SUB     = 2;
@@ -197,7 +229,6 @@ var FWF_BYFILENAME = 5;
 var oSys       = AkelPad.SystemFunction();
 var hInstDLL   = AkelPad.GetInstanceDll();
 var sClassName = "AkelPad::Scripts::" + WScript.ScriptName + "::" + hInstDLL;
-var hWndDlg;
 var hWndFilterEdit;
 var hWndCommandsList; // either ListView or ListBox
 var hSubclassFilterEdit;
@@ -206,199 +237,246 @@ var sCmdFilter = "";
 var sCmdFilter0 = "";
 var nCmdIndex = -1;
 var nCmdIndex0 = -1;
+var prevCmdFilter = -1;
+var ActionItem = undefined;
+var oMatches = []; // [0] = idx, [1] = match result, [2] = name
 
-if (!Options.UseListView)
+var sScripName = "Command Palette";
+var IDC_ED_FILTER = 1011;
+var IDC_LB_ITEMS  = 1021;
+var IDC_LV_ITEMS  = 1021;
+var IDX_ID      = 0;
+var IDX_CLASS   = 1;
+var IDX_HWND    = 2;
+var IDX_EXSTYLE = 3;
+var IDX_STYLE   = 4;
+var IDX_X       = 5;
+var IDX_Y       = 6;
+var IDX_W       = 7;
+var IDX_H       = 8;
+var aWnd = [];
+var hMainWnd = AkelPad.GetMainWnd();
+var nTextColorRGB = -1;
+var nBkColorRGB = -1;
+var nSelTextColorRGB = -1;
+var nSelBkColorRGB = -1;
+var hBkColorBrush = 0;
+var hSelBkColorBrush = 0;
+var hGuiFont;
+
+showCommandPalette();
+
+function showCommandPalette()
 {
-  Options.CmdTextMaxLength = Options.CmdTextMaxLengthListBox;
-  Options.CmdTotalMaxLength = Options.CmdTextMaxLength;
-}
-
-ReadLngFile();
-//WScript.Echo("Options.CmdTotalMaxLength = " + Options.CmdTotalMaxLength);
-
-if (hWndDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sClassName, 0))
-{
-  if (! oSys.Call("user32::IsWindowVisible", hWndDlg))
-    oSys.Call("user32::ShowWindow", hWndDlg, SW_SHOWNA);
-  if (oSys.Call("user32::IsIconic", hWndDlg))
-    oSys.Call("user32::ShowWindow", hWndDlg, SW_RESTORE);
-
-  oSys.Call("user32::SetForegroundWindow", hWndDlg);
-}
-else
-{
-  var sScripName = "Command Palette";
-  var ActionItem = undefined;
-
-  var IDX_ID      = 0;
-  var IDX_CLASS   = 1;
-  var IDX_HWND    = 2;
-  var IDX_EXSTYLE = 3;
-  var IDX_STYLE   = 4;
-  var IDX_X       = 5;
-  var IDX_Y       = 6;
-  var IDX_W       = 7;
-  var IDX_H       = 8;
-
-  var aWnd          = [];
-  var IDC_ED_FILTER = 1011;
-  var IDC_LB_ITEMS  = 1021;
-  var IDC_LV_ITEMS  = 1021;
-
-  var nDlgWidth  = Options.WindowWidth;
-  var nDlgHeight = Options.WindowHeight;
-  var nEditHeight = 20;
-
-  var hMainWnd = AkelPad.GetMainWnd();
-  var rectMainWnd = GetWindowRect(hMainWnd);
-
-  var nTextColorRGB = -1;
-  var nBkColorRGB = -1;
-  var hBkColorBrush = 0;
-  var hGuiFont;
-  var hWndEdit = AkelPad.GetEditWnd();
-  var hFontEdit = AkelPad.SendMessage(hWndEdit, WM_GETFONT, 0, 0);
-  if (hFontEdit)
+  if (!Options.UseListView)
   {
-    hGuiFont = hFontEdit;
-    var r = getRequiredWidthAndHeight(hWndEdit, hFontEdit);
-    //WScript.Echo("r.Width = " + r.Width + "\nr.Height = " + r.Height);
-    if (r.Width > 0)
-    {
-      nDlgWidth = r.Width;
-    }
-    if (r.Height > 0)
-    {
-      nEditHeight = r.Height;
-    }
-    if (Options.ApplyColorTheme && AkelPad.IsPluginRunning("Coder::HighLight"))
-    {
-      var sTextColor = getColorThemeVariable(hWndEdit, "HighLight_BasicTextColor");
-      var sBkColor = getColorThemeVariable(hWndEdit, "HighLight_BasicBkColor");
-      nTextColorRGB = getRgbIntFromHex(sTextColor);
-      nBkColorRGB = getRgbIntFromHex(sBkColor);
-      //WScript.Echo("TextColor = " + sTextColor + "\nBkColor = " + sBkColor);
-      if (nTextColorRGB != -1 && nBkColorRGB != -1)
-      {
-        hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
-      }
-    }
+    Options.CmdTextMaxLength = Options.CmdTextMaxLengthListBox;
+    Options.CmdTotalMaxLength = Options.CmdTextMaxLength;
+  }
+
+  var hWndDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sClassName, 0);
+  if (hWndDlg)
+  {
+    if (!oSys.Call("user32::IsWindowVisible", hWndDlg))
+      oSys.Call("user32::ShowWindow", hWndDlg, SW_SHOWNA);
+    if (oSys.Call("user32::IsIconic", hWndDlg))
+      oSys.Call("user32::ShowWindow", hWndDlg, SW_RESTORE);
+
+    oSys.Call("user32::SetForegroundWindow", hWndDlg);
   }
   else
   {
-    hGuiFont = oSys.Call("gdi32::GetStockObject", DEFAULT_GUI_FONT);
-    // var r = getRequiredWidthAndHeight(hMainWnd, hGuiFont);
-    // if (r.Width > 0)
-    // {
-    //   nDlgWidth = r.Width;
-    // }
-  }
+    var nDlgWidth  = Options.WindowWidth;
+    var nDlgHeight = Options.WindowHeight;
+    var nEditHeight = 20;
+    var rectMainWnd = GetWindowRect(hMainWnd);
+    var hWndEdit = AkelPad.GetEditWnd();
+    var hFontEdit = AkelPad.SendMessage(hWndEdit, WM_GETFONT, 0, 0);
 
-  var rectEditWnd = GetWindowRect(hWndEdit);
-  var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
-  var nEdY = Options.ShowWindowTitle ? 6 : 10;
-  var nEdH = Options.ShowWindowTitle ? 0 : 2;
-  //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
-  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight+nEdH]);
-  if (Options.UseListView)
-  {
-    var nLvStyle = WS_VISIBLE|WS_CHILD|LVS_NOCOLUMNHEADER|LVS_NOSORTHEADER|LVS_SHOWSELALWAYS|LVS_SINGLESEL|LVS_REPORT;
-    aWnd.push([IDC_LV_ITEMS, "SysListView32", 0,      0, nLvStyle,  2, nEditHeight+nEdY, -1, -1]);
-  }
-  else
-  {
-    var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
-    aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+nEdY, -1, -1]);
-  }
+    // Note: ReadLngFile() must be called before getRequiredWidthAndHeight.
+    // The value of Options.CmdTotalMaxLength is updated by createCmdObjName()
+    // which is called by ReadLngFile().
+    ReadLngFile();
 
-  var nWndStyle = Options.ShowWindowTitle ? (WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU) : (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_CLIPSIBLINGS);
-  var nWndY = 0; // relative to the editing window
-
-  if (nDlgHeight > rectEditWnd.H - nWndY)
-    nDlgHeight = rectEditWnd.H - nWndY;
-
-  ReadWriteIni(false);
-  AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
-  AkelPad.WindowRegisterClass(sClassName);
-
-  hWndDlg = oSys.Call("user32::CreateWindowEx" + _TCHAR,
-                      0,                // dwExStyle
-                      sClassName,       // lpClassName
-                      sScripName,       // lpWindowName
-                      nWndStyle,        // style
-                      rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2),  // x
-                      rectEditWnd.Y + nWndY,  // y
-                      nDlgWidth,        // nWidth
-                      nDlgHeight,       // nHeight
-                      hMainWnd,         // hWndParent
-                      0,                // hMenu
-                      hInstDLL,         // hInstance
-                      DialogCallback);  // Script function callback. To use it class must be registered by WindowRegisterClass.
-
-  AkelPad.WindowGetMessage();
-  AkelPad.WindowUnregisterClass(sClassName);
-
-  if (hBkColorBrush)
-  {
-    oSys.Call("gdi32::DeleteObject", hBkColorBrush);
-  }
-
-  if (ActionItem != undefined)
-  {
-    var cmd = ActionItem.cmd;
-
-    oSys.Call("user32::SetFocus", hMainWnd);
-    if (ActionItem.type == CMDTYPE_AKELPAD)
+    if (hFontEdit)
     {
-      if (cmd == IDM_FILE_CREATENEWWINDOW)
+      hGuiFont = hFontEdit;
+      var r = getRequiredWidthAndHeight(hWndEdit, hFontEdit);
+      //WScript.Echo("r.Width = " + r.Width + "\nr.Height = " + r.Height);
+      if (r.Width > 0)
       {
-        AkelPad_NewInstance(cmd);
+        nDlgWidth = r.Width;
       }
-      else
-        AkelPad.Command(cmd);
-    }
-    else if (ActionItem.type == CMDTYPE_PLUGIN)
-    {
-      if (cmd.indexOf(",") == -1)
+      if (r.Height > 0)
       {
-        // Example: AkelPad.Call("Coder::Settings");
-        AkelPad.Call(cmd);
+        nEditHeight = r.Height;
       }
-      else
+      if (Options.ApplyColorTheme && AkelPad.IsPluginRunning("Coder::HighLight"))
       {
-        // Example: AkelPad.Call("Coder::HighLight", 2, "#000000", "#9BFF9B");
-        cmd = expandAllVars(cmd).replace(/\\(?=[^\x22]|\x22$)/g, "\\\\");
-        evalCmd("AkelPad.Call(" + cmd + ");");
+        var sTextColor = getColorThemeVariable(hWndEdit, "HighLight_BasicTextColor");
+        var sBkColor = getColorThemeVariable(hWndEdit, "HighLight_BasicBkColor");
+        nTextColorRGB = getRgbIntFromHex(sTextColor);
+        nBkColorRGB = getRgbIntFromHex(sBkColor);
+        //WScript.Echo("TextColor = " + sTextColor + "\nBkColor = " + sBkColor);
+        if (nTextColorRGB != -1 && nBkColorRGB != -1)
+        {
+          hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
+        }
+        if (Options.TextMatchColor_ThemeVar != undefined && Options.TextMatchColor_ThemeVar != "")
+        {
+          var sMatchColor = getColorThemeVariable(hWndEdit, Options.TextMatchColor_ThemeVar);
+          nMatchColorRGB = getRgbIntFromHex(sMatchColor);
+          if (nMatchColorRGB !== -1)
+          {
+            Options.TextMatchColor = nMatchColorRGB;
+          }
+        }
+        if (Options.SelBkColor_ThemeVar != undefined && Options.SelBkColor_ThemeVar != "")
+        {
+          var sSelBkColor = getColorThemeVariable(hWndEdit, Options.SelBkColor_ThemeVar);
+          nSelBkColorRGB = getRgbIntFromHex(sSelBkColor);
+          if (nSelBkColorRGB !== -1)
+          {
+            hSelBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nSelBkColorRGB);
+          }
+        }
+        if (Options.SelTextColor_ThemeVar != undefined && Options.SelTextColor_ThemeVar != "")
+        {
+          var sSelTextColor = getColorThemeVariable(hWndEdit, Options.SelTextColor_ThemeVar);
+          nSelTextColorRGB = getRgbIntFromHex(sSelTextColor);
+        }
       }
     }
-    else if (ActionItem.type == CMDTYPE_SCRIPT)
+    else
     {
-      cmd = transformQuotes(cmd);
-      if (cmd.indexOf(",") == -1)
-      {
-        // Example: AkelPad.Call("Scripts::Main", 1, "SCRIPT");
-        AkelPad.Call("Scripts::Main", 1, cmd);
-      }
-      else
-      {
-        // Example: AkelPad.Call("Scripts::Main", 1, "SCRIPT", "ARGUMENTS");
-        cmd = expandAllVars(cmd).replace(/\\(?=[^\x22]|\x22$)/g, "\\\\");
-        evalCmd('AkelPad.Call("Scripts::Main", 1, ' + cmd + ');');
-      }
+      hGuiFont = oSys.Call("gdi32::GetStockObject", DEFAULT_GUI_FONT);
+      // var r = getRequiredWidthAndHeight(hMainWnd, hGuiFont);
+      // if (r.Width > 0)
+      // {
+      //   nDlgWidth = r.Width;
+      // }
     }
-    else if (ActionItem.type == CMDTYPE_EXEC)
+
+    var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
+    var nEdY = Options.ShowWindowTitle ? 6 : 10;
+    var nEdH = Options.ShowWindowTitle ? 0 : 2;
+    //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
+    aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight+nEdH]);
+    if (Options.UseListView)
     {
-      cmd = substituteVars(cmd, AkelPad.GetEditFile(0));
-      if (cmd.substr(0, 1) == ":")
+      var nLvStyle = WS_VISIBLE|WS_CHILD|LVS_NOCOLUMNHEADER|LVS_NOSORTHEADER|LVS_SHOWSELALWAYS|LVS_SINGLESEL|LVS_REPORT;
+      if (Options.apply_match_color)
       {
-        // executing a script's function
-        evalCmd(cmd.substr(1) + ";");
+        nLvStyle |= LVS_OWNERDRAWFIXED;
       }
-      else
+      aWnd.push([IDC_LV_ITEMS, "SysListView32", 0,      0, nLvStyle,  2, nEditHeight+nEdY, -1, -1]);
+    }
+    else
+    {
+      var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
+      if (Options.apply_match_color)
       {
-        // executing an external command
-        AkelPad.Exec(cmd);
+        nLbStyle |= (LBS_OWNERDRAWFIXED|LBS_NODATA);
       }
+      aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+nEdY, -1, -1]);
+    }
+
+    var rectEditWnd = GetWindowRect(hWndEdit);
+    var nWndStyle = Options.ShowWindowTitle ? (WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU) : (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_CLIPSIBLINGS);
+    var nWndY = 0; // relative to the editing window
+
+    if (nDlgHeight > rectEditWnd.H - nWndY)
+      nDlgHeight = rectEditWnd.H - nWndY;
+
+    ReadWriteIni(false);
+    AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
+    AkelPad.WindowRegisterClass(sClassName);
+
+    hWndDlg = oSys.Call("user32::CreateWindowEx" + _TCHAR,
+                        0,                // dwExStyle
+                        sClassName,       // lpClassName
+                        sScripName,       // lpWindowName
+                        nWndStyle,        // style
+                        rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2),  // x
+                        rectEditWnd.Y + nWndY,  // y
+                        nDlgWidth,        // nWidth
+                        nDlgHeight,       // nHeight
+                        hMainWnd,         // hWndParent
+                        0,                // hMenu
+                        hInstDLL,         // hInstance
+                        DialogCallback);  // Script function callback. To use it class must be registered by WindowRegisterClass.
+
+    AkelPad.WindowGetMessage();
+    AkelPad.WindowUnregisterClass(sClassName);
+
+    if (hBkColorBrush)
+    {
+      oSys.Call("gdi32::DeleteObject", hBkColorBrush);
+    }
+
+    executeActionItem();
+  }
+}
+
+function executeActionItem()
+{
+  if (ActionItem == undefined)
+    return;
+
+  var cmd = ActionItem.cmd;
+  //WScript.Echo("type: " + ActionItem.type + ", cmd: " + cmd);
+
+  oSys.Call("user32::SetFocus", hMainWnd);
+  if (ActionItem.type == CMDTYPE_AKELPAD)
+  {
+    if (cmd == IDM_FILE_CREATENEWWINDOW)
+    {
+      AkelPad_NewInstance(cmd);
+    }
+    else
+      AkelPad.Command(cmd);
+  }
+  else if (ActionItem.type == CMDTYPE_PLUGIN)
+  {
+    if (cmd.indexOf(",") == -1)
+    {
+      // Example: AkelPad.Call("Coder::Settings");
+      AkelPad.Call(cmd);
+    }
+    else
+    {
+      // Example: AkelPad.Call("Coder::HighLight", 2, "#000000", "#9BFF9B");
+      cmd = expandAllVars(cmd).replace(/\\(?=[^\x22]|\x22$)/g, "\\\\");
+      evalCmd("AkelPad.Call(" + cmd + ");");
+    }
+  }
+  else if (ActionItem.type == CMDTYPE_SCRIPT)
+  {
+    cmd = transformQuotes(cmd);
+    if (cmd.indexOf(",") == -1)
+    {
+      // Example: AkelPad.Call("Scripts::Main", 1, "SCRIPT");
+      AkelPad.Call("Scripts::Main", 1, cmd);
+    }
+    else
+    {
+      // Example: AkelPad.Call("Scripts::Main", 1, "SCRIPT", "ARGUMENTS");
+      cmd = expandAllVars(cmd).replace(/\\(?=[^\x22]|\x22$)/g, "\\\\");
+      evalCmd('AkelPad.Call("Scripts::Main", 1, ' + cmd + ');');
+    }
+  }
+  else if (ActionItem.type == CMDTYPE_EXEC)
+  {
+    cmd = substituteVars(cmd, AkelPad.GetEditFile(0));
+    if (cmd.substr(0, 1) == ":")
+    {
+      // executing a script's function
+      evalCmd(cmd.substr(1) + ";");
+    }
+    else
+    {
+      // executing an external command
+      AkelPad.Exec(cmd);
     }
   }
 }
@@ -490,13 +568,7 @@ function getRequiredWidthAndHeight(hWndEdit, hFontEdit)
     var hDC = oSys.Call("user32::GetDC", hWndEdit);
     if (hDC)
     {
-      var S = "";
-      var i = Options.CmdTotalMaxLength;
-      while (i != 0)
-      {
-        S = S + "a";
-        i--;
-      }
+      var S = createString("a", Options.CmdTotalMaxLength);
       oSys.Call("gdi32::SelectObject", hDC, hFontEdit);
       if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, S, S.length, lpSize))
       {
@@ -511,10 +583,11 @@ function getRequiredWidthAndHeight(hWndEdit, hFontEdit)
   {
     nWidth += 32;
   }
-  var r  = new Object();
-  r.Width = nWidth;
-  r.Height = nHeight;
-  return r;
+
+  return {
+    Width : nWidth,
+    Height : nHeight
+  };
 }
 
 function substituteVars(cmd, filePathName)
@@ -689,7 +762,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       }
     }
 
-    if (sCmdFilter == "")
+    if (!sCmdFilter)
     {
       CommandsList_Fill(hWndCommandsList, undefined);
     }
@@ -802,6 +875,200 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
   }
 
+  else if (uMsg == WM_MEASUREITEM)
+  {
+    var lpMIS = lParam; // LPMEASUREITEMSTRUCT lpMIS = (LPMEASUREITEMSTRUCT)lParam;
+    if (AkelPad.MemRead(_PtrAdd(lpMIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpMIS->CtlID
+    {
+      var itemHeight = 20; // default
+      if (hGuiFont)
+      {
+        var lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+        if (lpTM)
+        {
+          var hDC = oSys.Call("user32::GetDC", hWnd);
+          oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
+          oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
+          itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
+          itemHeight += 2; // Adjust for spacing as needed
+          oSys.Call("User32::ReleaseDC", hWnd, hDC);
+          AkelPad.MemFree(lpTM);
+        }
+      }
+      AkelPad.MemCopy(_PtrAdd(lpMIS, 16), itemHeight, DT_DWORD); // lpMIS->itemHeight = itemHeight;
+      return 1;
+    }
+  }
+
+  else if (uMsg == WM_DRAWITEM)
+  {
+    var lpDIS = lParam; // LPDRAWITEMSTRUCT lpdis = (LPDRAWITEMSTRUCT)lParam;
+    if (AkelPad.MemRead(_PtrAdd(lpDIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpDIS->CtlID
+    {
+      var itemID = AkelPad.MemRead(_PtrAdd(lpDIS, 8), DT_DWORD); // lpDIS->itemID
+      if (itemID != -1 && itemID != 0xFFFFFFFF)
+      {
+        var crTextMatch = Options.TextMatchColor;
+        var crText;
+        var crBk;
+        var crChar;
+        var hBrushBk;
+        var nModeBkOld;
+        var nCharWidth = 0;
+        var x;
+        var y;
+        var i;
+        var j;
+        var c;
+        var filter = sCmdFilter;
+        var match = oMatches[itemID][1];
+        var matchType = 0;
+        var matchIdx = 0;
+        var text = oMatches[itemID][2];
+        var itemAction = AkelPad.MemRead(_PtrAdd(lpDIS, 12), DT_DWORD); // lpDIS->itemAction
+        var itemState = AkelPad.MemRead(_PtrAdd(lpDIS, 16), DT_DWORD); // lpDIS->itemState
+        var hDC = AkelPad.MemRead(_PtrAdd(lpDIS, _X64 ? 32 : 24), DT_QWORD);
+        var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
+        var oRect = RectToObj(lpRC);
+        var lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
+
+        if (itemState & ODS_SELECTED)
+        {
+          if (nSelTextColorRGB != -1)
+            crText = nSelTextColorRGB;
+          else
+            crText = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHTTEXT);
+          if (nSelBkColorRGB != -1 && hSelBkColorBrush != 0)
+          {
+            crBk = nSelBkColorRGB;
+            hBrushBk = hSelBkColorBrush;
+          }
+          else
+          {
+            crBk = oSys.Call("user32::GetSysColor", COLOR_HIGHLIGHT);
+            hBrushBk = oSys.Call("user32::GetSysColorBrush", COLOR_HIGHLIGHT);
+          }
+        }
+        else
+        {
+          if (isApplyingColorTheme())
+          {
+            crText = nTextColorRGB;
+            crBk = nBkColorRGB;
+            hBrushBk = hBkColorBrush;
+          }
+          else
+          {
+            crText = oSys.Call("user32::GetSysColor", COLOR_WINDOWTEXT);
+            crBk = oSys.Call("user32::GetSysColor", COLOR_WINDOW);
+            hBrushBk = oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+          }
+        }
+
+        oSys.Call("user32::FillRect", hDC, lpRC, hBrushBk);
+        nModeBkOld = oSys.Call("gdi32::SetBkMode", hDC, 1 /*TRANSPARENT*/);
+        oSys.Call("gdi32::SetBkColor", hDC, crBk);
+
+        if (match != undefined && typeof(match) == "string")
+        {
+          c = match.substr(0, 1);
+          if (c === "e") // exact match, e.g. "e007"
+          {
+            matchType = 1;
+            matchIdx = parseInt(match.substr(1), 10); // extract e.g. 7 from "e007"
+          }
+          else if (c === "p") // partial match, e.g. "pxxvxvvxxxxv"
+          {
+            match = match.substr(1); // without the leading "p"
+            matchType = 2;
+          }
+        }
+
+        for (j = 0; j < (Options.UseListView ? 2 : 1); ++j)
+        {
+          if (Options.UseListView)
+          {
+            AkelPad.MemCopy(_PtrAdd(lpRect, 0), 0 /*LVIR_BOUNDS*/, DT_DWORD); // left
+            AkelPad.MemCopy(_PtrAdd(lpRect, 4), j, DT_DWORD); // top
+            AkelPad.MemCopy(_PtrAdd(lpRect, 8), 0, DT_DWORD); // right
+            AkelPad.MemCopy(_PtrAdd(lpRect, 12), 0, DT_DWORD); // bottom
+            AkelPad.SendMessage(hWndCommandsList, LVM_GETSUBITEMRECT, itemID, lpRect);
+            oRect = RectToObj(lpRect);
+            c = oMatches[itemID][2].lastIndexOf("\t");
+            if (j == 0) // command text
+            {
+              text = (c == -1) ? oMatches[itemID][2] : oMatches[itemID][2].substr(0, c);
+            }
+            else // command shortcut
+            {
+              switch (matchType)
+              {
+                case 1: // exact match
+                  if (matchIdx > text.length)
+                  {
+                    matchIdx -= (text.length + 1);
+                  }
+                  else
+                  {
+                    matchType = 0;
+                  }
+                  break;
+                case 2: // partial match
+                  if (match.length > text.length + 1)
+                  {
+                    match = match.substr(text.length + 1);
+                  }
+                  else
+                  {
+                    matchType = 0;
+                  }
+                  break;
+              }
+              text = (c == -1) ? "" : oMatches[itemID][2].substr(c + 1);
+            }
+          }
+
+          x = oRect.X + 5;
+          y = oRect.Y + 2;
+
+          for (i = 0; i < text.length; ++i)
+          {
+            crChar = crText;
+            switch (matchType)
+            {
+              case 1: // exact match
+                if (i >= matchIdx && i < matchIdx + filter.length)
+                {
+                  crChar = crTextMatch;
+                }
+                break;
+              case 2: // partial match, "v" in e.g. "xxvxvvxxxxv"
+                if (i >= matchIdx && i - matchIdx < match.length)
+                {
+                  if (match.substr(i - matchIdx, 1) === "v")
+                    crChar = crTextMatch;
+                }
+                break;
+            }
+            oSys.Call("gdi32::SetTextColor", hDC, crChar);
+            c = text.substr(i, 1);
+            oSys.Call("gdi32::TextOut" + _TCHAR, hDC, x, y, c, 1);
+            if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, lpRect)) // using RECT instead of SIZE
+            {
+              nCharWidth = AkelPad.MemRead(_PtrAdd(lpRect, 0), DT_DWORD);
+            }
+            x += nCharWidth;
+          }
+          oSys.Call("gdi32::SetTextColor", hDC, crText);
+          oSys.Call("gdi32::SetBkMode", hDC, nModeBkOld);
+        }
+
+        AkelPad.MemFree(lpRect);
+        return 1;
+      }
+    }
+  }
+
   else if (uMsg == WM_CLOSE)
   {
     ReadWriteIni(true);
@@ -893,55 +1160,68 @@ function CommandsListCallback(hWnd, uMsg, wParam, lParam)
     AkelPad.WindowNoNextProc(hSubclassCommandsList);
     return 0;
   }
+  /*
+  else if (uMsg == WM_ERASEBKGND)
+  {
+    var lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
+    var hDC = wParam;
+    var hBrushBk = isApplyingColorTheme() ? hBkColorBrush : oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
+    oSys.Call("user32::GetClientRect", hWnd, lpRect);
+    oSys.Call("user32::FillRect", hDC, lpRect, hBrushBk);
+    AkelPad.MemFree(lpRect);
+    return 1;
+  }
+  */
+}
+
+function RectToObj(lpRect)
+{
+  var left = AkelPad.MemRead(_PtrAdd(lpRect, 0), DT_DWORD);
+  var top = AkelPad.MemRead(_PtrAdd(lpRect, 4), DT_DWORD);
+
+  return {
+    X : left,
+    Y : top,
+    W : (AkelPad.MemRead(_PtrAdd(lpRect, 8), DT_DWORD) - left),
+    H : (AkelPad.MemRead(_PtrAdd(lpRect, 12), DT_DWORD) - top)
+  };
 }
 
 function GetWindowRect(hWnd)
 {
-  var oRect  = new Object();
+  var oRect;
   var lpRect = AkelPad.MemAlloc(16); //sizeof(RECT)
 
   oSys.Call("user32::GetWindowRect", hWnd, lpRect);
-
-  oRect.X = AkelPad.MemRead(_PtrAdd(lpRect,  0), DT_DWORD);
-  oRect.Y = AkelPad.MemRead(_PtrAdd(lpRect,  4), DT_DWORD);
-  oRect.W = AkelPad.MemRead(_PtrAdd(lpRect,  8), DT_DWORD) - oRect.X;
-  oRect.H = AkelPad.MemRead(_PtrAdd(lpRect, 12), DT_DWORD) - oRect.Y;
-
+  oRect = RectToObj(lpRect);
   AkelPad.MemFree(lpRect);
+
   return oRect;
 }
 
 function GetClientRect(hWnd)
 {
-  var oRect  = new Object();
+  var oRect;
   var lpRect = AkelPad.MemAlloc(16); //sizeof(RECT)
 
   oSys.Call("user32::GetClientRect", hWnd, lpRect);
-
-  oRect.X = AkelPad.MemRead(_PtrAdd(lpRect,  0), DT_DWORD);
-  oRect.Y = AkelPad.MemRead(_PtrAdd(lpRect,  4), DT_DWORD);
-  oRect.W = AkelPad.MemRead(_PtrAdd(lpRect,  8), DT_DWORD) - oRect.X;
-  oRect.H = AkelPad.MemRead(_PtrAdd(lpRect, 12), DT_DWORD) - oRect.Y;
-
+  oRect = RectToObj(lpRect);
   AkelPad.MemFree(lpRect);
+
   return oRect;
 }
 
 function GetChildWindowRect(hWnd)
 {
-  var oRect  = new Object();
+  var oRect;
   var lpRect = AkelPad.MemAlloc(16); //sizeof(RECT)
   var hParentWnd = oSys.Call("user32::GetParent", hWnd);
 
   oSys.Call("user32::GetWindowRect", hWnd, lpRect);
   oSys.Call("user32::MapWindowPoints", HWND_DESKTOP, hParentWnd, lpRect, 2);
-
-  oRect.X = AkelPad.MemRead(_PtrAdd(lpRect,  0), DT_DWORD);
-  oRect.Y = AkelPad.MemRead(_PtrAdd(lpRect,  4), DT_DWORD);
-  oRect.W = AkelPad.MemRead(_PtrAdd(lpRect,  8), DT_DWORD) - oRect.X;
-  oRect.H = AkelPad.MemRead(_PtrAdd(lpRect, 12), DT_DWORD) - oRect.Y;
-
+  oRect = RectToObj(lpRect);
   AkelPad.MemFree(lpRect);
+
   return oRect;
 }
 
@@ -982,7 +1262,7 @@ function MatchFilter(sFilter, sLine)
 
   j = 0;
   m = "";
-  for (i = 0; i < sFilter.length; i++)
+  for (i = 0; i < sFilter.length; ++i)
   {
     c = sFilter.substr(i, 1);
     if (c != " ") // ' ' matches any character
@@ -990,18 +1270,27 @@ function MatchFilter(sFilter, sLine)
     if (j == -1)
       return ""; // no match
 
-    while (m.length < j)  m = m + "x";
-    m = m + "v";
+    if (j > m.length)
+      m += createString("x", j - m.length);
+
+    m += "v";
     ++j;
   }
+
   return "p" + m; // partial match
 }
 
 function compareByCommand(a, b)
 {
-  if ((a[2] < b[2]) || (a[2] == b[2] && a[1] < b[1]))
+  // first, comparing by match: [1]
+  if (a[1] < b[1])
     return -1;
-  if ((a[2] > b[2]) || (a[2] == b[2] && a[1] > b[1]))
+  if (a[1] > b[1])
+    return 1;
+  // next, comparing by name: [2]
+  if (a[2] < b[2])
+    return -1;
+  if (a[2] > b[2])
     return 1;
   return 0;
 }
@@ -1035,14 +1324,20 @@ function getFullCmdText(cmdText, cmdIdx)
 
 function getCmdName(cmdText)
 {
-  var n = cmdText.lastIndexOf("\\t");
+  var n = cmdText.lastIndexOf("\t");
   return (n != -1) ? cmdText.substr(0, n) : cmdText;
 }
 
 function getCmdShortcutKey(cmdText)
 {
-  var n = cmdText.lastIndexOf("\\t");
-  return (n != -1) ? cmdText.substr(n+2) : "";
+  var n = cmdText.lastIndexOf("\t");
+  return (n != -1) ? cmdText.substr(n+1) : "";
+}
+
+function createString(c, N)
+{
+  // N times repeats c
+  return new Array(N + 1).join(c);
 }
 
 function InitCommandsListView(hLvWnd, width)
@@ -1086,45 +1381,14 @@ function GetLvSelectedIndex(hLvWnd)
 
 function CommandsList_GetCurSelItem(hListWnd)
 {
-  var n;
-  var cmdIdx;
+  var n = Options.UseListView ? GetLvFocusedIndex(hListWnd) : AkelPad.SendMessage(hListWnd, LB_GETCURSEL, 0, 0);
+  if (n < 0)
+    n = 0;
 
-  if (Options.UseListView)
-  {
-    n = GetLvFocusedIndex(hListWnd);
-    if (n < 0)
-      n = 0;
+  nCmdIndex = n;
 
-    nCmdIndex = n;
-
-    var lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
-
-    // LVITEM.mask:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_PARAM, DT_DWORD);
-    // LVITEM.iItem:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 4), n, DT_DWORD);
-    // LVITEM.iSubItem:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 8), 0, DT_DWORD);
-    // Get the item:
-    AkelPad.SendMessage(hListWnd, LVM_GETITEMW, 0, lpLvItem);
-
-    // Get LVITEM.lParam:
-    cmdIdx = AkelPad.MemRead(_PtrAdd(lpLvItem, _X64 ? 40 : 32), DT_DWORD);
-
-    AkelPad.MemFree(lpLvItem);
-  }
-  else
-  {
-    n = AkelPad.SendMessage(hListWnd, LB_GETCURSEL, 0, 0);
-    if (n < 0)
-      n = 0;
-
-    nCmdIndex = n;
-
-    cmdIdx = AkelPad.SendMessage(hListWnd, LB_GETITEMDATA, n, 0);
-  }
-
-  return Commands[cmdIdx];
+  n = oMatches[n][0]; // [0] = idx
+  return Commands[n];
 }
 
 function CommandsList_SetCurSel(hListWnd, nItem)
@@ -1169,29 +1433,25 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
   {
     var lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
 
-    cmdText = getCmdName(getFullCmdText(cmdName, cmdIdx));
+    cmdText = getCmdName(cmdName);
     cmdShortcut = getCmdShortcutKey(cmdName);
 
     var lpCmdTextW = undefined;
     if (Options.apply_64bit_rare_fix)
     {
-      // Note: the usage of lpCmdTextW fixes a rare problem
-      // with 64-bit AkelPad under Windows 11
       n = (cmdText.length > cmdShortcut.length) ? cmdText.length : cmdShortcut.length;
       lpCmdTextW = AkelPad.MemAlloc(2*(n + 1)); // sizeof(WCHAR)*(len + '\0')
       AkelPad.MemCopy(lpCmdTextW, cmdText, DT_UNICODE);
     }
 
     // LVITEM.mask:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_TEXT|LVIF_PARAM, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_TEXT, DT_DWORD);
     // LVITEM.iItem:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, 4), i, DT_DWORD);
     // LVITEM.iSubItem:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, 8), 0, DT_DWORD);
     // LVITEM.pszText:
     AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdText, DT_QWORD);
-    // LVITEM.lParam:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 40 : 32), cmdIdx, DT_QWORD);
     // Inserting an item:
     AkelPad.SendMessage(hListWnd, LVM_INSERTITEMW, 0, lpLvItem);
 
@@ -1219,9 +1479,7 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
   }
   else
   {
-    cmdText = getFullCmdText(cmdName, cmdIdx);
-    n = AkelPad.SendMessage(hListWnd, LB_ADDSTRING, 0, cmdText);
-    AkelPad.SendMessage(hListWnd, LB_SETITEMDATA, n, cmdIdx);
+    AkelPad.SendMessage(hListWnd, LB_ADDSTRING, 0, oMatches[i][2]);
   }
 }
 
@@ -1233,33 +1491,32 @@ function CommandsList_Fill(hListWnd, sFilter)
   var cmdText;
   var Matches = [];
 
+  if (sFilter === prevCmdFilter)
+    return;
+
   if (sFilter != undefined)
     sFilter = sFilter.toLowerCase();
+
+  prevCmdFilter = sFilter;
 
   for (i = 0; i < Commands.length; i++)
   {
     C = [];
     C.push(i); // [0] = idx
-    C.push(Commands[i].name); // [1] = name
-    if (sFilter == undefined || sFilter == "")
+    if (!sFilter)
     {
-      C.push(0); // [2] = match result
+      C.push(0); // [1] = match result
+      C.push(Commands[i].name); // [2] = name
       Matches.push(C);
     }
     else
     {
-      cmdText = C[1].toLowerCase();
-      n = cmdText.indexOf("::");
-      if (n != -1)
-      {
-        // allows to type ' ' instead of '::'
-        cmdText = cmdText.replace("::", ":: ");
-      }
-      cmdText = getFullCmdText(cmdText, C[0]);
-      n = MatchFilter(sFilter, cmdText);
+      cmdText = getFullCmdText(Commands[i].name, C[0]);
+      n = MatchFilter(sFilter, cmdText.toLowerCase());
       if (n != "")
       {
-        C.push(n); // [2] = match result
+        C.push(n); // [1] = match result
+        C.push(cmdText); // [2] = name
         Matches.push(C);
       }
     }
@@ -1267,16 +1524,34 @@ function CommandsList_Fill(hListWnd, sFilter)
 
   Matches.sort(compareByCommand);
 
+  oMatches = Matches; // [0] = idx, [1] = match result, [2] = name
+
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, FALSE, 0);
   CommandsList_Clear(hListWnd);
 
   for (i = 0; i < Matches.length; i++)
   {
-    CommandsList_AddItem(hListWnd, Matches[i][1], Matches[i][0], i);
+    if (!sFilter)
+    {
+      Matches[i][2] = getFullCmdText(Matches[i][2], Matches[i][0]);
+    }
+    CommandsList_AddItem(hListWnd, Matches[i][2], Matches[i][0], i);
   }
 
   AkelPad.SendMessage(hListWnd, WM_SETREDRAW, TRUE, 0);
   CommandsList_SetCurSel(hListWnd, 0);
+
+  /*
+  if (sFilter != undefined && sFilter.length > 3)
+  {
+    var s = "";
+    for (i = 0; i < Matches.length && i < 10; i++)
+    {
+      s += Matches[i][1] + "\n";
+    }
+    WScript.Echo(s);
+  }
+  */
 }
 
 function LOWORD(nParam)
@@ -1363,23 +1638,17 @@ function ReadWriteIni(bWrite)
 function alignCmdShortcut(cmdText)
 {
   var nMaxLen = Options.CmdTextMaxLength - (Options.ShowCmdIds ? 7 : 0);
-  var n = cmdText.lastIndexOf("\\t");
+  var n = cmdText.lastIndexOf("\t");
   if (n != -1)
   {
     if (cmdText.length < nMaxLen)
     {
-      var t = "";
-      var i = cmdText.length;
-      while (i < nMaxLen)
-      {
-        t = t + " ";
-        i++;
-      }
-      cmdText = cmdText.substr(0, n) + t + cmdText.substr(n + 2);
+      var t = createString(" ", nMaxLen - cmdText.length);
+      cmdText = cmdText.substr(0, n) + t + cmdText.substr(n + 1);
     }
     else
     {
-      cmdText = cmdText.substr(0, n) + "  " + cmdText.substr(n + 2);
+      cmdText = cmdText.substr(0, n) + "  " + cmdText.substr(n + 1);
     }
   }
   return cmdText;
@@ -1387,11 +1656,11 @@ function alignCmdShortcut(cmdText)
 
 function CreateCmdObj(type, cmd, name)
 {
-  var cmdObj = new Object();
-  cmdObj.type = type; // one of CMD_TYPE_*
-  cmdObj.cmd  = cmd;  // AkelPad's Command Id or Plugin Call
-  cmdObj.name = name; // full Command Name = Command Text + Shortcut key
-  return cmdObj;
+  return {
+    type : type, // one of CMD_TYPE_*
+    cmd : cmd,  // AkelPad's Command Id or Plugin Call
+    name : name // full Command Name = Command Text + Shortcut key
+  };
 }
 
 function createCmdObjName(s)
@@ -1537,6 +1806,7 @@ function ReadLngFile()
         section = m[1].toLowerCase();
         continue;
       }
+      s = s.replace("\\t", "\t");
       if (section == "akelpad")
       {
         m = s.match(/^\s*(\d+)\s*=\s*"(.+)"\s*$/);
