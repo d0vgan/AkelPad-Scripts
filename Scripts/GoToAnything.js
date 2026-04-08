@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.11
+// Version: 0.7.12
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -303,6 +303,7 @@ var AKD_OPENDOCUMENTW = (WM_USER + 157);
 var AKD_GOTOW  = (WM_USER + 182);
 var AKD_GETFRAMEINFO = (WM_USER + 199);
 var AKD_GETEDITINFO = (WM_USER + 200);
+var AKD_PROGRAMARCHITECTURE = (WM_USER + 202);
 var AKD_RECENTFILES = (WM_USER + 214);
 var AKD_FRAMEACTIVATE = (WM_USER + 261);
 var AKD_FRAMEDESTROY = (WM_USER + 263);
@@ -310,6 +311,7 @@ var AKD_FRAMEFIND = (WM_USER + 264);
 var AKD_FRAMEFINDW = (WM_USER + 266);
 var AKD_FRAMEISVALID = (WM_USER + 269);
 var AKD_FRAMEINDEX = (WM_USER + 270);
+var AKD_FRAMEMOVE = (WM_USER + 273);
 var AEM_GETUNWRAPLINE = (WM_USER + 2119);
 var AEM_SCROLLTOPOINT = (WM_USER + 2159);
 
@@ -400,6 +402,8 @@ function createState()
   s.isFavouritesLoaded = false;
   s.isRecentFilesLoaded = false;
   s.isIgnoringEscKeyUp = false;
+  s.isShowingHelp = false;
+  s.isAkdFrameMoveAvailable = (compareAkelPadArchitecture(make_identifier(2, 2, 12, 0)) >= 0);
   return s;
 }
 
@@ -1933,28 +1937,26 @@ function activateOpenedFile(offset, flags)
   else
   {
     lpExistingFrame = af.lpFrame;
-
-    if (flags & fofFinalChoice)
-    {
-      AkelPad.SendMessage(hWndMain, WM_SETREDRAW, FALSE, 0);
-      activateFrame(oState.lpInitialFrame, 0);
-    }
   }
 
   if (lpExistingFrame && af.lpFrame != getCurrentFrame())
   {
-    activateFrame(af.lpFrame, (flags & (fofFinalChoice | fofMainExit)) ? 0 : FWA_NOUPDATEORDER);
-    if ((flags & fofApplyActiveFrame) && !(flags & (fofFinalChoice | fofMainExit)))
+    var nFlags = 0;
+    if (oState.isAkdFrameMoveAvailable && !(flags & (fofFinalChoice | fofMainExit)))
+      nFlags = FWA_NOUPDATEORDER;
+    activateFrame(af.lpFrame, nFlags);
+    if (flags & fofApplyActiveFrame)
       apply_active_frame(af.lpFrame);
     oState.sLastActivatedFilePath = af.path;
   }
 
-  if (flags & fofFinalChoice)
+  if ((flags & fofFinalChoice) && oState.isAkdFrameMoveAvailable)
   {
-    AkelPad.SendMessage(hWndMain, WM_SETREDRAW, TRUE, 0);
-    AkelPad.SendMessage(hWndMain, WM_COMMAND, 0, 0);
-    //oSys.Call("user32::InvalidateRect", hWndMain, 0, TRUE);
-    //oSys.Call("user32::UpdateWindow", hWndMain);
+    var lpFrameIndex = memAlloc(_X64 ? 16 : 8); // sizeof(FRAMEINDEX)
+    AkelPad.MemCopy(_PtrAdd(lpFrameIndex, 0), getCurrentFrame(), DT_QWORD);
+    AkelPad.MemCopy(_PtrAdd(lpFrameIndex, _X64 ? 8 : 4), -1, DT_DWORD);
+    AkelPad.SendMessage(hWndMain, AKD_FRAMEMOVE, TRUE, lpFrameIndex);
+    memFree(lpFrameIndex);
   }
 }
 
@@ -1976,7 +1978,7 @@ function FilesList_ActivateSelectedItem(hListWnd, flags)
   var offset = FilesList_GetCurSelData(hListWnd);
   if (offset >= Consts.nDirFilesOffset)
   {
-    if ((flags & fofFinalChoice) != 0 && Options.AutoPreviewSelectedFile)
+    if ((flags & fofFinalChoice) && Options.AutoPreviewSelectedFile)
       return;
 
     var sFullPath = getFullPathByOffset(offset);
@@ -2395,10 +2397,15 @@ function isApplyingColorTheme()
 
 function showHelp()
 {
+  if (oState.isShowingHelp)
+    return;
+
+  oState.isShowingHelp = true;
   oState.isIgnoringEscKeyUp = true;
   //log.WriteLine("isIgnoringEscKeyUp = true");
   oSys.Call("user32::MessageBox" + _TCHAR, hWndScriptDlg, sScriptHelp, sScriptName + ": Help", MB_OK);
   oSys.Call("user32::SetFocus", hWndFilterEdit);
+  oState.isShowingHelp = false;
 }
 
 function getOpenedFiles()
@@ -2440,6 +2447,16 @@ function isFrameValid(lpFrame)
 function getFrameFileName(lpFrame)
 {
   return AkelPad.MemRead(AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_FILEW, lpFrame), DT_UNICODE);
+}
+
+function make_identifier(a, b, c, d)
+{
+  return (a | (b << 8) | (c << 16) | (d << 24));
+}
+
+function compareAkelPadArchitecture(arch)
+{
+  return AkelPad.SendMessage(hWndMain, AKD_PROGRAMARCHITECTURE, 0, arch);
 }
 
 function activateFrame(lpFrame, nFlags)
