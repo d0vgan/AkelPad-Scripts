@@ -111,6 +111,7 @@ var Options = {
                             // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
                             // or specify "" to use the system's color (COLOR_HIGHLIGHT)
 
+  apply_match_color : true, // true -> apply TextMatchColor to the matching parts
   apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
 
@@ -504,7 +505,11 @@ function runScript()
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
   aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,    nEdY,      -1, nEditHeight]);
-  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_NODATA;
+  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
+  if (Options.apply_match_color)
+  {
+    nLbStyle |= (LBS_OWNERDRAWFIXED|LBS_NODATA);
+  }
   aWnd.push([IDC_LB_ITEMS,   "LISTBOX",       0,      0, nLbStyle,  2,    nLbY, -1, -1]);
 
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
