@@ -66,15 +66,21 @@ var Options = {
   Char_GoToText1 : "@",
   Char_GoToText2 : "#",
   Char_GoToLine  : ":",
-  MatchOpenedFilesFirst : true, // opened files are always at the top of the matches
   ApplyColorTheme : true, // use AkelPad's colors
   IsTransparent : false, // whether the popup dialog is tranparent
   OpaquePercent : 80, // applies when IsTransparent is `true`
+  ShowWindowTitle : false, // false -> no window title
+  ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
+  ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
+  MatchOpenedFilesFirst : true, // opened files are always at the top of the matches
+  IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
   SaveDlgPosSize : true, // whether to save the popup dialog position and size
   SaveLastFilter : false, // experimental: whether to save the last filter
   SaveAutoPreview : true, // whether to save the AutoPreviewSelectedFile value
   SaveStartDir : true, // save the start (project) directory
   VisualPathDepth : 4, // visual path depth of items in the file list
+  AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
+  ExcludePreviewedFilesFromRecentFiles : true, // don't update Recent Files while previewing
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
   FoldersInFavourites : false, // experimental: folders in Favourites
@@ -95,11 +101,6 @@ var Options = {
     "chm", "docx", "djv", "djvu", "odb", "odf", "odp", "ods", "odt", "pdf", "ppsx", "ppt", "pptx", "xls", "xlsx", // documents
     "db", "bin", "iso", "obj", "o" // binaries
   ], // -- these files will be ignored
-  ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
-  ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
-  IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
-  AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
-  ExcludePreviewedFilesFromRecentFiles : true, // don't update Recent Files while previewing
   TextMatchColor : 0x0040FF, // color of the matching parts of file names: 0xBBGGRR
   TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
                                 // or specify "" to use the TextMatchColor above
@@ -176,6 +177,7 @@ var COLOR_WINDOWTEXT    = 8;
 var COLOR_HIGHLIGHT     = 13;
 var COLOR_HIGHLIGHTTEXT = 14;
 var MB_OK = 0x00000;
+var HTCAPTION  = 2;
 
 //Windows Messages
 var WM_CREATE          = 0x0001;
@@ -192,6 +194,7 @@ var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
 var WM_HELP            = 0x0053;
+var WM_NCLBUTTONDOWN   = 0x00A1;
 var WM_KEYDOWN         = 0x0100;
 var WM_KEYUP           = 0x0101;
 var WM_CHAR            = 0x0102;
@@ -226,6 +229,7 @@ var WS_CAPTION = 0x00C00000;
 var WS_VISIBLE = 0x10000000;
 var WS_CHILD   = 0x40000000;
 var WS_POPUP   = 0x80000000;
+var WS_CLIPSIBLINGS = 0x04000000;
 var WS_EX_CONTEXTHELP  = 0x00000400;
 var WS_EX_LAYERED      = 0x00080000;
 var ES_AUTOHSCROLL     = 0x0080;
@@ -493,12 +497,15 @@ function runScript()
   var nDlgWidth  = 600;
   var nDlgHeight = 530;
   var nEditHeight = 20;
+  var nEdY = Options.ShowWindowTitle ? 4 : 0;
+  var nLbY = nEditHeight + (Options.ShowWindowTitle ? 6 : 4);
   var dwExStyle = (Options.IsTransparent ? WS_EX_LAYERED : 0) | WS_EX_CONTEXTHELP;
+  var dwStyle = (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_SIZEBOX) | (Options.ShowWindowTitle ? (WS_CAPTION|WS_SYSMENU) : WS_CLIPSIBLINGS);
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
-  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight]);
+  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,    nEdY,      -1, nEditHeight]);
   var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_NODATA;
-  aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+6, -1, -1]);
+  aWnd.push([IDC_LB_ITEMS,   "LISTBOX",       0,      0, nLbStyle,  2,    nLbY, -1, -1]);
 
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
   AkelPad.WindowRegisterClass(sScriptClassName);
@@ -554,7 +561,7 @@ function runScript()
                       dwExStyle,        // dwExStyle
                       sScriptClassName, // lpClassName
                       sScriptName,      // lpWindowName
-                      WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU|WS_BORDER|WS_SIZEBOX,  // style
+                      dwStyle,          // style
                       x,                // x
                       y,                // y
                       nDlgWidth,        // nWidth
@@ -814,13 +821,23 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     }
   }
 
+  else if (uMsg == WM_LBUTTONDOWN)
+  {
+    if (!Options.ShowWindowTitle)
+    {
+      oSys.Call("user32::ReleaseCapture");
+      AkelPad.SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+      return TRUE;
+    }
+  }
+
   else if (uMsg == WM_SIZE)
   {
     var rectClient = GetClientRect(hWnd);
     var rectEdit = GetChildWindowRect(hWndFilterEdit);
     var rectLB = GetChildWindowRect(hWndFilesList);
     ResizeWindow(hWndFilterEdit, rectClient.W - 4, rectEdit.H);
-    ResizeWindow(hWndFilesList, rectClient.W - 4, rectClient.H - rectLB.Y + 4);
+    ResizeWindow(hWndFilesList, rectClient.W - 4, rectClient.H - rectLB.Y + (Options.ShowWindowTitle ? 4 : 0));
   }
 
   else if (uMsg == WM_ACTIVATE)
@@ -1800,7 +1817,7 @@ function FilesList_Fill(hListWnd, sFilter)
     }
   }
 
-  if (Options.ShowNumberOfItemsInTitle)
+  if (Options.ShowWindowTitle && Options.ShowNumberOfItemsInTitle)
   {
     var title = sScriptName + "  [" + oFileListItems.length + "/" + totalItems + "]";
     var hDlg = oSys.Call("user32::GetParent", hListWnd);
