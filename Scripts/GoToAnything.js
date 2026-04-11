@@ -518,7 +518,7 @@ function runScript()
   var rectMainWnd = GetWindowRect(hWndMain);
   var rectEditWnd = GetWindowRect(hWndEdit);
   var x = rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2);
-  var y = rectEditWnd.Y + 10;
+  var y = rectEditWnd.Y;
   if (Options.SaveDlgPosSize ||
       Options.SaveLastFilter ||
       Options.SaveAutoPreview ||
