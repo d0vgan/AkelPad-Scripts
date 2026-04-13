@@ -857,14 +857,14 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     var y;
     var borderWidth = 6;
     var oRect = GetClientRect(hWnd);
-    var lpPoint = AkelPad.MemAlloc(8); // sizeof(POINT)
+    var lpPoint = memAlloc(8); // sizeof(POINT)
 
     AkelPad.MemCopy(_PtrAdd(lpPoint, 0), LOWORD(lParam), DT_DWORD); // x
     AkelPad.MemCopy(_PtrAdd(lpPoint, 4), HIWORD(lParam), DT_DWORD); // y
     oSys.Call("user32::ScreenToClient", hWnd, lpPoint);
     x = AkelPad.MemRead(_PtrAdd(lpPoint, 0), DT_DWORD);
     y = AkelPad.MemRead(_PtrAdd(lpPoint, 4), DT_DWORD);
-    AkelPad.MemFree(lpPoint);
+    memFree(lpPoint);
 
     if (y >= oRect.Y + oRect.H - borderWidth)
     {
