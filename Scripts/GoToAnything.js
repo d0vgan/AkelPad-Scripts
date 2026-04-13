@@ -178,7 +178,12 @@ var COLOR_WINDOWTEXT    = 8;
 var COLOR_HIGHLIGHT     = 13;
 var COLOR_HIGHLIGHTTEXT = 14;
 var MB_OK = 0x00000;
-var HTCAPTION  = 2;
+var HTCAPTION     = 2;
+var HTLEFT        = 10;
+var HTRIGHT       = 11;
+var HTBOTTOM      = 15;
+var HTBOTTOMLEFT  = 16;
+var HTBOTTOMRIGHT = 17;
 
 //Windows Messages
 var WM_CREATE          = 0x0001;
@@ -195,6 +200,7 @@ var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
 var WM_HELP            = 0x0053;
+var WM_NCHITTEST       = 0x0084;
 var WM_NCLBUTTONDOWN   = 0x00A1;
 var WM_KEYDOWN         = 0x0100;
 var WM_KEYUP           = 0x0101;
@@ -498,10 +504,10 @@ function runScript()
   var nDlgWidth  = 600;
   var nDlgHeight = 530;
   var nEditHeight = 20;
-  var nEdY = Options.ShowWindowTitle ? 4 : 0;
-  var nLbY = nEditHeight + (Options.ShowWindowTitle ? 6 : 4);
+  var nEdY = 4;
+  var nLbY = nEditHeight + (Options.ShowWindowTitle ? 6 : 8);
   var dwExStyle = (Options.IsTransparent ? WS_EX_LAYERED : 0) | WS_EX_CONTEXTHELP;
-  var dwStyle = (WS_VISIBLE|WS_POPUP|WS_BORDER|WS_SIZEBOX) | (Options.ShowWindowTitle ? (WS_CAPTION|WS_SYSMENU) : WS_CLIPSIBLINGS);
+  var dwStyle = (WS_VISIBLE|WS_POPUP|WS_BORDER) | (Options.ShowWindowTitle ? (WS_CAPTION|WS_SYSMENU|WS_SIZEBOX) : WS_CLIPSIBLINGS);
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
   aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,    nEdY,      -1, nEditHeight]);
@@ -845,6 +851,38 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     ResizeWindow(hWndFilesList, rectClient.W - 4, rectClient.H - rectLB.Y + (Options.ShowWindowTitle ? 4 : 0));
   }
 
+  else if (uMsg == WM_NCHITTEST)
+  {
+    var x;
+    var y;
+    var borderWidth = 6;
+    var oRect = GetClientRect(hWnd);
+    var lpPoint = AkelPad.MemAlloc(8); // sizeof(POINT)
+
+    AkelPad.MemCopy(_PtrAdd(lpPoint, 0), LOWORD(lParam), DT_DWORD); // x
+    AkelPad.MemCopy(_PtrAdd(lpPoint, 4), HIWORD(lParam), DT_DWORD); // y
+    oSys.Call("user32::ScreenToClient", hWnd, lpPoint);
+    x = AkelPad.MemRead(_PtrAdd(lpPoint, 0), DT_DWORD);
+    y = AkelPad.MemRead(_PtrAdd(lpPoint, 4), DT_DWORD);
+    AkelPad.MemFree(lpPoint);
+
+    if (y >= oRect.Y + oRect.H - borderWidth)
+    {
+      if (x >= oRect.X + oRect.W - borderWidth)
+        return HTBOTTOMRIGHT;
+      if (x <= borderWidth)
+        return HTBOTTOMLEFT;
+      return HTBOTTOM;
+    }
+
+    if (x >= oRect.X + oRect.W - borderWidth)
+      return HTRIGHT;
+    if (x <= borderWidth)
+      return HTLEFT;
+
+    return HTCAPTION;
+  }
+
   else if (uMsg == WM_ACTIVATE)
   {
     if (wParam != 0)
@@ -912,7 +950,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
         var rcItem = RectToArray(lpRC);
         //var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
-        var lpSize = memAlloc(16); // sizeof(SIZE)
+        var lpSize = memAlloc(8); // sizeof(SIZE)
 
         //oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
         //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
