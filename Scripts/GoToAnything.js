@@ -853,8 +853,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
   else if (uMsg == WM_NCHITTEST)
   {
-    var x;
-    var y;
+    var x, y;
     var borderWidth = 6;
     var oRect = GetClientRect(hWnd);
     var lpPoint = memAlloc(8); // sizeof(POINT)
@@ -927,18 +926,13 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (itemID != -1 && itemID != 0xFFFFFFFF)
       {
         var crTextMatch = Options.TextMatchColor;
-        var crText;
-        var crBk;
-        var crChar;
+        var crText, crBk, crChar;
         var hBrushBk;
         var nModeBkOld;
         //var itemHeight;
         var nCharWidth = 0;
         //var nCharHeight = 0;
-        var x;
-        var y;
-        var i;
-        var c;
+        var x, y, i, c;
         var filter = oState.sLastFullFilter;
         var match = oFileListItems[itemID][0];
         var matchType = 0;
@@ -1729,10 +1723,8 @@ function FilesList_AddItem(hListWnd, fileName)
 
 function FilesList_Fill(hListWnd, sFilter)
 {
-  var i;
-  var n;
-  var fpath;
-  var item;
+  var i, n;
+  var fpath, item;
   var totalItems = 0;
   var matches = [];
   var activeFilePaths = [];
@@ -2103,17 +2095,16 @@ function compareByMatch(m1, m2)
 
 function MatchFilter(sFilter, sFilePath)
 {
-  var i;
-  var j;
-  var c;
-  var m;
+  var i, j, k;
+  var c, m;
   var fname = getFileName(sFilePath);
 
   i = fname.indexOf(sFilter)
   if (i !== -1)
   {
-    m = "" + i;
-    while (m.length < 3)  m = "0" + m;
+    m = i.toString();
+    k = 4 - m.length;
+    if (k > 0)  m = createString("0", k) + m;
     return "e1" + m; // exact name match
   }
 
@@ -2130,8 +2121,9 @@ function MatchFilter(sFilter, sFilePath)
       break;
     }
 
-    if (j > m.length)
-      m += createString("x", j - m.length);
+    k = j - m.length;
+    if (k > 0)
+      m += createString("x", k);
 
     m += "v";
     ++j;
@@ -2144,8 +2136,9 @@ function MatchFilter(sFilter, sFilePath)
     i = sFilePath.indexOf(sFilter);
     if (i !== -1)
     {
-      m = "" + i;
-      while (m.length < 3)  m = "0" + m;
+      m = i.toString();
+      k = 4 - m.length;
+      if (k > 0)  m = createString("0", k) + m;
       return "e2" + m; // exact pathname match
     }
 
@@ -2159,8 +2152,9 @@ function MatchFilter(sFilter, sFilePath)
       if (j === -1)
         return ""; // no match
 
-      if (j > m.length)
-        m += createString("x", j - m.length);
+      k = j - m.length;
+      if (k > 0)
+        m += createString("x", k);
 
       m += "v";
       ++j;
@@ -2174,7 +2168,7 @@ function MatchFilter(sFilter, sFilePath)
 function createString(c, N)
 {
   // N times repeats c
-  return new Array(N + 1).join(c);
+  return (N == 1) ? c : new Array(N + 1).join(c);
 }
 
 function LOWORD(nParam)
@@ -2371,8 +2365,7 @@ function strTrim(s)
 
 function getNthDepthPath(path, depth)
 {
-  var k1;
-  var k2;
+  var k1, k2;
   var k = path.length;
 
   for (;;)
@@ -2638,13 +2631,10 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
   var NoError = 0;
   var Error_TooManyFiles = -1;
   var subresult;
-  var s;
-  var sFullName;
+  var s, sFullName;
   var nAttr;
-  var i;
-  var j;
-  var nDirs;
-  var nSubDirs;
+  var i, j;
+  var nDirs, nSubDirs;
   var result = {
     files : [],
     code : NoError // OK
