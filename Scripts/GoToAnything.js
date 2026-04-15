@@ -606,6 +606,42 @@ function runScript()
 
   cleanup();
 
+  executeActionItem();
+}
+
+function cleanup()
+{
+  if (hSelBkColorBrush)
+  {
+    oSys.Call("gdi32::DeleteObject", hSelBkColorBrush);
+  }
+
+  if (hBkColorBrush)
+  {
+    oSys.Call("gdi32::DeleteObject", hBkColorBrush);
+  }
+
+  if (oReusables.lpTM)
+  {
+    AkelPad.MemFree(oReusables.lpTM);
+    oReusables.lpTM = undefined;
+  }
+
+  if (oReusables.lpRect)
+  {
+    AkelPad.MemFree(oReusables.lpRect);
+    oReusables.lpRect = undefined;
+  }
+}
+
+function quit()
+{
+  cleanup();
+  WScript.Quit();
+}
+
+function executeActionItem()
+{
   function restore_initial_tab()
   {
     if (AkelPad.IsMDI() != WMD_SDI)
@@ -715,37 +751,6 @@ function runScript()
   }
 
   oSys.Call("user32::SetFocus", hWndMain);
-}
-
-function cleanup()
-{
-  if (hSelBkColorBrush)
-  {
-    oSys.Call("gdi32::DeleteObject", hSelBkColorBrush);
-  }
-
-  if (hBkColorBrush)
-  {
-    oSys.Call("gdi32::DeleteObject", hBkColorBrush);
-  }
-
-  if (oReusables.lpTM)
-  {
-    AkelPad.MemFree(oReusables.lpTM);
-    oReusables.lpTM = undefined;
-  }
-
-  if (oReusables.lpRect)
-  {
-    AkelPad.MemFree(oReusables.lpRect);
-    oReusables.lpRect = undefined;
-  }
-}
-
-function quit()
-{
-  cleanup();
-  WScript.Quit();
 }
 
 function DialogCallback(hWnd, uMsg, wParam, lParam)
