@@ -327,7 +327,7 @@ function showCommandPalette()
         {
           hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
         }
-        if (Options.TextMatchColor_ThemeVar != undefined && Options.TextMatchColor_ThemeVar != "")
+        if (Options.TextMatchColor_ThemeVar)
         {
           var sMatchColor = getColorThemeVariable(hWndEdit, Options.TextMatchColor_ThemeVar);
           nMatchColorRGB = getRgbIntFromHex(sMatchColor);
@@ -336,7 +336,7 @@ function showCommandPalette()
             Options.TextMatchColor = nMatchColorRGB;
           }
         }
-        if (Options.SelBkColor_ThemeVar != undefined && Options.SelBkColor_ThemeVar != "")
+        if (Options.SelBkColor_ThemeVar)
         {
           var sSelBkColor = getColorThemeVariable(hWndEdit, Options.SelBkColor_ThemeVar);
           nSelBkColorRGB = getRgbIntFromHex(sSelBkColor);
@@ -345,7 +345,7 @@ function showCommandPalette()
             hSelBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nSelBkColorRGB);
           }
         }
-        if (Options.SelTextColor_ThemeVar != undefined && Options.SelTextColor_ThemeVar != "")
+        if (Options.SelTextColor_ThemeVar)
         {
           var sSelTextColor = getColorThemeVariable(hWndEdit, Options.SelTextColor_ThemeVar);
           nSelTextColorRGB = getRgbIntFromHex(sSelTextColor);
