@@ -477,7 +477,7 @@ function runScript()
       {
         hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
       }
-      if (Options.TextMatchColor_ThemeVar != undefined && Options.TextMatchColor_ThemeVar != "")
+      if (Options.TextMatchColor_ThemeVar)
       {
         var sMatchColor = getColorThemeVariable(hWndEdit, Options.TextMatchColor_ThemeVar);
         nMatchColorRGB = getRgbIntFromHex(sMatchColor);
@@ -486,7 +486,7 @@ function runScript()
           Options.TextMatchColor = nMatchColorRGB;
         }
       }
-      if (Options.SelBkColor_ThemeVar != undefined && Options.SelBkColor_ThemeVar != "")
+      if (Options.SelBkColor_ThemeVar)
       {
         var sSelBkColor = getColorThemeVariable(hWndEdit, Options.SelBkColor_ThemeVar);
         nSelBkColorRGB = getRgbIntFromHex(sSelBkColor);
@@ -495,7 +495,7 @@ function runScript()
           hSelBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nSelBkColorRGB);
         }
       }
-      if (Options.SelTextColor_ThemeVar != undefined && Options.SelTextColor_ThemeVar != "")
+      if (Options.SelTextColor_ThemeVar)
       {
         var sSelTextColor = getColorThemeVariable(hWndEdit, Options.SelTextColor_ThemeVar);
         nSelTextColorRGB = getRgbIntFromHex(sSelTextColor);
@@ -1374,7 +1374,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         do
         {
           dir = AkelPad.InputBox(AkelPad.GetMainWnd(), WScript.ScriptName, title, startDirResult.dir);
-          if (dir == undefined || dir === "")
+          if (!dir)
             break;
 
           while (dir.length > 0)
@@ -1527,7 +1527,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
   var i;
   var c;
 
-  if (sFilter != undefined && sFilter != "")
+  if (sFilter)
   {
     i = GetSpecialPosInFilter(sFilter);
     if (i != -1)
@@ -1703,7 +1703,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
 function GetSpecialPosInFilter(sFilter)
 {
-  if (sFilter == undefined || sFilter === "")
+  if (!sFilter)
     return -1;
 
   var i1 = sFilter.indexOf(Options.Char_GoToText1);
@@ -1757,7 +1757,7 @@ function FilesList_Fill(hListWnd, sFilter)
 
   function matches_add_if_match(offset, fname)
   {
-    if (sFilter == undefined || sFilter === "")
+    if (!sFilter)
     {
       var m = [];
       m.push(offset);  // match=offset
@@ -1916,7 +1916,7 @@ function open_file(filePath, flags)
     var dwFlags = 0x00F;
     var hDocEd = 0;
 
-    if (filePath == undefined || filePath == "")
+    if (!filePath)
       return -1; // error
 
     if (isFrameValid(oState.lpTemporaryFrame))
@@ -2574,9 +2574,7 @@ function getFavFilePath()
 function getStartDir()
 {
   var result = new Object();
-  if (Options.StartDir != undefined &&
-      Options.StartDir !== "" &&
-      oFSO.FolderExists(Options.StartDir))
+  if (Options.StartDir && oFSO.FolderExists(Options.StartDir))
   {
     result.dir = Options.StartDir;
     result.fromCurrDir = false;
