@@ -178,6 +178,7 @@ var COLOR_WINDOWTEXT    = 8;
 var COLOR_HIGHLIGHT     = 13;
 var COLOR_HIGHLIGHTTEXT = 14;
 var MB_OK = 0x00000;
+var MB_ICONERROR = 0x0010;
 var HTCAPTION     = 2;
 var HTLEFT        = 10;
 var HTRIGHT       = 11;
@@ -373,6 +374,11 @@ var aWnd          = [];
 var IDC_ED_FILTER = 1011;
 var IDC_LB_ITEMS  = 1021;
 
+var oReusables = {
+  lpTM : undefined, // WM_MEASUREITEM
+  lpRect : undefined // WM_DRAWITEM, WM_ERASEBKGND
+};
+
 function createConsts()
 {
   var c = {
@@ -518,6 +524,14 @@ function runScript()
   }
   aWnd.push([IDC_LB_ITEMS,   "LISTBOX",       0,      0, nLbStyle,  2,    nLbY, -1, -1]);
 
+  oReusables.lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+  oReusables.lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
+  if (!oReusables.lpTM || !oReusables.lpRect)
+  {
+    ShowErr("Failed to allocate memory for lpTM or lpRect");
+    quit();
+  }
+
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
   AkelPad.WindowRegisterClass(sScriptClassName);
 
@@ -590,15 +604,7 @@ function runScript()
   AkelPad.WindowGetMessage();
   AkelPad.WindowUnregisterClass(sScriptClassName);
 
-  if (hSelBkColorBrush)
-  {
-    oSys.Call("gdi32::DeleteObject", hSelBkColorBrush);
-  }
-
-  if (hBkColorBrush)
-  {
-    oSys.Call("gdi32::DeleteObject", hBkColorBrush);
-  }
+  cleanup();
 
   function restore_initial_tab()
   {
@@ -709,6 +715,37 @@ function runScript()
   }
 
   oSys.Call("user32::SetFocus", hWndMain);
+}
+
+function cleanup()
+{
+  if (hSelBkColorBrush)
+  {
+    oSys.Call("gdi32::DeleteObject", hSelBkColorBrush);
+  }
+
+  if (hBkColorBrush)
+  {
+    oSys.Call("gdi32::DeleteObject", hBkColorBrush);
+  }
+
+  if (oReusables.lpTM)
+  {
+    AkelPad.MemFree(oReusables.lpTM);
+    oReusables.lpTM = undefined;
+  }
+
+  if (oReusables.lpRect)
+  {
+    AkelPad.MemFree(oReusables.lpRect);
+    oReusables.lpRect = undefined;
+  }
+}
+
+function quit()
+{
+  cleanup();
+  WScript.Quit();
 }
 
 function DialogCallback(hWnd, uMsg, wParam, lParam)
@@ -900,17 +937,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       var itemHeight = 20; // default
       if (hGuiFont)
       {
-        var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
-        if (lpTM)
-        {
-          var hDC = oSys.Call("user32::GetDC", hWnd);
-          oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
-          oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
-          itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
-          itemHeight += 2; // Adjust for spacing as needed
-          oSys.Call("User32::ReleaseDC", hWnd, hDC);
-          memFree(lpTM);
-        }
+        var hDC = oSys.Call("user32::GetDC", hWnd);
+        oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
+        oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, oReusables.lpTM);
+        itemHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpTM, 0), DT_DWORD); // tm.tmHeight
+        itemHeight += 2; // Adjust for spacing as needed
+        oSys.Call("User32::ReleaseDC", hWnd, hDC);
       }
       AkelPad.MemCopy(_PtrAdd(lpMIS, 16), itemHeight, DT_DWORD); // lpMIS->itemHeight = itemHeight;
       return 1;
@@ -943,12 +975,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         var hDC = AkelPad.MemRead(_PtrAdd(lpDIS, _X64 ? 32 : 24), DT_QWORD);
         var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
         var rcItem = RectToArray(lpRC);
-        //var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
-        var lpSize = memAlloc(8); // sizeof(SIZE)
 
         //oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
-        //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
-        //itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
+        //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, oReusables.lpTM);
+        //itemHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpTM, 0), DT_DWORD); // tm.tmHeight
 
         if (itemState & ODS_SELECTED)
         {
@@ -1041,32 +1071,30 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
             case 3: // partial name match
               if (i > matchIdx && i + 1 - matchIdx < match.length)
               {
-                if (match.substr(i + 1 - matchIdx, 1) === "v")
+                if (match.charAt(i + 1 - matchIdx) === "v")
                   crChar = crTextMatch;
               }
               break;
             case 4: // partial pathname match
-              if (i + 2 < match.length && match.substr(i + 2, 1) === "v")
+              if (i + 2 < match.length && match.charAt(i + 2) === "v")
               {
                 crChar = crTextMatch;
               }
               break;
           }
           oSys.Call("gdi32::SetTextColor", hDC, crChar);
-          c = text.substr(i, 1);
+          c = text.charAt(i);
           oSys.Call("gdi32::TextOut" + _TCHAR, hDC, x, y, c, 1);
-          if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, lpSize))
+          if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, oReusables.lpRect)) // using RECT instead of SIZE
           {
-            nCharWidth = AkelPad.MemRead(_PtrAdd(lpSize, 0), DT_DWORD);
-            //nCharHeight = AkelPad.MemRead(_PtrAdd(lpSize, 4), DT_DWORD);
+            nCharWidth = AkelPad.MemRead(_PtrAdd(oReusables.lpRect, 0), DT_DWORD);
+            //nCharHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpRect, 4), DT_DWORD);
           }
           x += nCharWidth;
         }
         oSys.Call("gdi32::SetTextColor", hDC, crText);
         oSys.Call("gdi32::SetBkMode", hDC, nModeBkOld);
 
-        memFree(lpSize);
-        // memFree(lpTM);
         return 1;
       }
     }
@@ -1351,7 +1379,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
 
           while (dir.length > 0)
           {
-            c = dir.substr(dir.length - 1, 1);
+            c = dir.charAt(dir.length - 1);
             if (c === "\\" || c === "/")
               dir = dir.substr(0, dir.length - 1);
             else
@@ -1482,12 +1510,10 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   /*
   else if (uMsg == WM_ERASEBKGND)
   {
-    var lpRect = memAlloc(16); // sizeof(RECT)
     var hDC = wParam;
     var hBrushBk = isApplyingColorTheme() ? hBkColorBrush : oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
-    oSys.Call("user32::GetClientRect", hWnd, lpRect);
-    oSys.Call("user32::FillRect", hDC, lpRect, hBrushBk);
-    memFree(lpRect);
+    oSys.Call("user32::GetClientRect", hWnd, oReusables.lpRect);
+    oSys.Call("user32::FillRect", hDC, oReusables.lpRect, hBrushBk);
     return 1;
   }
   */
@@ -1506,7 +1532,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     i = GetSpecialPosInFilter(sFilter);
     if (i != -1)
     {
-      c = sFilter.substr(i, 1);
+      c = sFilter.charAt(i);
       if (c === Options.Char_GoToText1 || c === Options.Char_GoToText2)
       {
         if (c === Options.Char_GoToText1 && nFindNext == 0)
@@ -1690,7 +1716,7 @@ function GetSpecialPosInFilter(sFilter)
   i1 = sFilter.lastIndexOf(Options.Char_GoToLine);
   if (i1 !== -1)
   {
-    var c = sFilter.substr(i1 + 1, 1);
+    var c = sFilter.charAt(i1 + 1);
     if (c === "\\" || c === "/")
       i1 = -1;
   }
@@ -1834,6 +1860,18 @@ function FilesList_Fill(hListWnd, sFilter)
   FilesList_Clear(hListWnd);
 
   oFileListItems = matches; // [0] - match, [1] - offset, [2] - name
+
+  /*
+  if (sFilter && sFilter.length > 2)
+  {
+    var s = "";
+    for (i = 0; i < 10; ++i)
+    {
+      s += matches[i][0] + ", " + matches[i][2]  + "\n";
+    }
+    WScript.Echo(s);
+  }
+  */
 
   n = oFileListItems.length;
   for (i = 0; i < n; ++i)
@@ -2070,15 +2108,27 @@ function FilesList_ActivateSelectedItem(hListWnd, flags)
   }
 }
 
+function isMatchTypeSame(s1, s2)
+{
+  return (typeof(s1) == "string" && typeof(s2) == "string" &&
+          s1.charAt(0) == s2.charAt(0) && s1.charAt(1) == s2.charAt(1));
+}
+
 function compareByMatch(m1, m2)
 {
   if (Options.MatchOpenedFilesFirst)
   {
     // pre-comparing by offset: opened files first
     if (m1[1] < Consts.nDirFilesOffset && m2[1] >= Consts.nDirFilesOffset)
-      return -1;
-    if (m1[1] >= Consts.nDirFilesOffset && m2[1] < Consts.nDirFilesOffset)
-      return 1;
+    {
+      if (isMatchTypeSame(m1[0], m2[0]))
+        return -1;
+    }
+    else if (m1[1] >= Consts.nDirFilesOffset && m2[1] < Consts.nDirFilesOffset)
+    {
+      if (isMatchTypeSame(m1[0], m2[0]))
+        return 1;
+    }
   }
   // first, comparing by match
   if (m1[0] < m2[0])
@@ -2093,26 +2143,26 @@ function compareByMatch(m1, m2)
   return 0;
 }
 
+function posToStr(n)
+{
+  return (n + 10000).toString().slice(1);
+}
+
 function MatchFilter(sFilter, sFilePath)
 {
   var i, j, k;
   var c, m;
   var fname = getFileName(sFilePath);
 
-  i = fname.indexOf(sFilter)
+  i = fname.indexOf(sFilter); // position in the fname
   if (i !== -1)
-  {
-    m = i.toString();
-    k = 4 - m.length;
-    if (k > 0)  m = createString("0", k) + m;
-    return "e1" + m; // exact name match
-  }
+    return "e1" + posToStr(i); // exact name match
 
   j = 0;
   m = "";
   for (i = 0; i < sFilter.length; ++i)
   {
-    c = sFilter.substr(i, 1);
+    c = sFilter.charAt(i);
     if (c !== " ") // ' ' matches any character
       j = fname.indexOf(c, j);
     if (j === -1)
@@ -2133,20 +2183,15 @@ function MatchFilter(sFilter, sFilePath)
 
   if (fname !== sFilePath)
   {
-    i = sFilePath.indexOf(sFilter);
+    i = sFilePath.indexOf(sFilter); // position in the sFilePath
     if (i !== -1)
-    {
-      m = i.toString();
-      k = 4 - m.length;
-      if (k > 0)  m = createString("0", k) + m;
-      return "e2" + m; // exact pathname match
-    }
+      return "e2" + posToStr(i); // exact pathname match
 
     j = 0;
     m = "";
     for (i = 0; i < sFilter.length; ++i)
     {
-      c = sFilter.substr(i, 1);
+      c = sFilter.charAt(i);
       if (c !== " ") // ' ' matches any character
         j = sFilePath.indexOf(c, j);
       if (j === -1)
@@ -2329,15 +2374,15 @@ function getEnvVar(varName)
   return varValue;
 }
 
+function subst_replacer(matched_part, p1)
+{
+  // p1 is a substring found by the first parenthesized capture group
+  return getEnvVar(p1); // this replaces the matched_part
+}
+
 function substituteEnvVars(s)
 {
-  function replacer(matched_part, p1, offset, full_str)
-  {
-    // p1 is a substring found by the first parenthesized capture group
-    return getEnvVar(p1); // this replaces the matched_part
-  }
-
-  return s.replace(/%([^%]*)%/g, replacer);
+  return s.replace(/%([^%]*)%/g, subst_replacer);
 }
 
 function isStringInArray(str, arr, ignoreCase)
@@ -2415,7 +2460,7 @@ function getRgbIntFromHex(sRgb)
   if (sRgb.length != 0)
   {
     var i = 0;
-    if (sRgb.substr(0, 1) === "#")
+    if (sRgb.charAt(0) === "#")
       i = 1;
     if (sRgb.length - i == 6)
     {
@@ -2794,6 +2839,11 @@ function getRecentFiles()
 
   oState.isRecentFilesLoaded = true;
   return recentFiles;
+}
+
+function ShowErr(errMsg)
+{
+  AkelPad.MessageBox(AkelPad.GetMainWnd(), errMsg, WScript.ScriptName, MB_OK|MB_ICONERROR);
 }
 
 function createEmptySettingsObject()
