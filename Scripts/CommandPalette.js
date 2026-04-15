@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.8.0
+// Version: 0.8.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -263,6 +263,11 @@ var nSelBkColorRGB = -1;
 var hBkColorBrush = 0;
 var hSelBkColorBrush = 0;
 var hGuiFont;
+var oReusables = {
+  lpTM : undefined, // WM_MEASUREITEM
+  lpRect : undefined, // WM_DRAWITEM, WM_ERASEBKGND
+  lpLvItem : undefined
+};
 
 showCommandPalette();
 
@@ -389,6 +394,19 @@ function showCommandPalette()
       nDlgHeight = rectEditWnd.H - nWndY;
 
     ReadWriteIni(false);
+
+    oReusables.lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+    oReusables.lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
+    if (Options.UseListView)
+    {
+      oReusables.lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
+    }
+    if (!oReusables.lpTM || !oReusables.lpRect || (Options.UseListView && !oReusables.lpLvItem))
+    {
+      ShowErr("Failed to allocate memory for lpTM or lpRect");
+      quit();
+    }
+
     AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
     AkelPad.WindowRegisterClass(sClassName);
 
@@ -409,13 +427,42 @@ function showCommandPalette()
     AkelPad.WindowGetMessage();
     AkelPad.WindowUnregisterClass(sClassName);
 
-    if (hBkColorBrush)
-    {
-      oSys.Call("gdi32::DeleteObject", hBkColorBrush);
-    }
+    cleanup();
 
     executeActionItem();
   }
+}
+
+function cleanup()
+{
+  if (hBkColorBrush)
+  {
+    oSys.Call("gdi32::DeleteObject", hBkColorBrush);
+  }
+
+  if (oReusables.lpTM)
+  {
+    AkelPad.MemFree(oReusables.lpTM);
+    oReusables.lpTM = undefined;
+  }
+
+  if (oReusables.lpRect)
+  {
+    AkelPad.MemFree(oReusables.lpRect);
+    oReusables.lpRect = undefined;
+  }
+
+  if (oReusables.lpLvItem)
+  {
+    AkelPad.MemFree(oReusables.lpLvItem);
+    oReusables.lpLvItem = undefined;
+  }
+}
+
+function quit()
+{
+  cleanup();
+  WScript.Quit();
 }
 
 function executeActionItem()
@@ -468,7 +515,7 @@ function executeActionItem()
   else if (ActionItem.type == CMDTYPE_EXEC)
   {
     cmd = substituteVars(cmd, AkelPad.GetEditFile(0));
-    if (cmd.substr(0, 1) == ":")
+    if (cmd.charAt(0) == ":")
     {
       // executing a script's function
       evalCmd(cmd.substr(1) + ";");
@@ -492,21 +539,19 @@ function evalCmd(cmd)
   }
 }
 
+function quoteReplacer(str_match, str_group1)
+{
+  // str_match - the entire match: `...`
+  // str_group1 - the first matched group: ...
+  var r = str_group1.replace(/\"/g, "\\\""); // escaping the inner ""
+  return '"' + r + '"'; // replacing the outer `` with ""
+}
+
 function transformQuotes(cmd)
 {
   // input: `"abc", "123"`
   // output: "\"abc\", \"123\""
-  return cmd.replace(
-    /`([^`]*)`/g, // `...` or ``
-    function(str_match, str_group1, offset, s) {
-      // str_match - the entire match: `...`
-      // str_group1 - the first matched group: ...
-      // offset - the offset of str_match in s
-      // s - the original string
-      var r = str_group1.replace(/\"/g, "\\\""); // escaping the inner ""
-      return '"' + r + '"'; // replacing the outer `` with ""
-    }
-  );
+  return cmd.replace(/`([^`]*)`/g, quoteReplacer); // replacing `...` or ``
 }
 
 function getColorThemeVariable(hWndEdit, varName)
@@ -527,7 +572,7 @@ function getRgbIntFromHex(sRgb)
   if (sRgb.length != 0)
   {
     var i = 0;
-    if (sRgb.substr(0, 1) == "#")
+    if (sRgb.charAt(0) == "#")
       i = 1;
     if (sRgb.length - i == 6)
     {
@@ -593,27 +638,16 @@ function getRequiredWidthAndHeight(hWndEdit, hFontEdit)
 function substituteVars(cmd, filePathName)
 {
   // substitutes AkelPad-specific variables
-  if (cmd.indexOf("%a") >= 0)
-  {
-    cmd = cmd.replace(/%a/g, getAkelPadDir(0));
-  }
-  if (cmd.indexOf("%d") >= 0)
-  {
-    cmd = cmd.replace(/%d/g, getFileDir(filePathName));
-  }
-  if (cmd.indexOf("%e") >= 0)
-  {
-    cmd = cmd.replace(/%e/g, getFileExt(filePathName));
-  }
-  if (cmd.indexOf("%f") >= 0)
-  {
-    cmd = cmd.replace(/%f/g, filePathName);
-  }
-  if (cmd.indexOf("%n") >= 0)
-  {
-    cmd = cmd.replace(/%n/g, getFileName(filePathName));
-  }
-  return cmd;
+  var map = {
+    "%a" : function() { return getAkelPadDir(0); },
+    "%d" : function() { return getFileDir(filePathName); },
+    "%e" : function() { return getFileExt(filePathName); },
+    "%f" : function() { return filePathName; },
+    "%n" : function() { return getFileName(filePathName); }
+  };
+  return cmd.replace(/%[adefn]/g, function(m) {
+    return map[m] ? map[m]() : m;
+  });
 }
 
 function expandEnvironmentVars(cmd)
@@ -883,17 +917,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       var itemHeight = 20; // default
       if (hGuiFont)
       {
-        var lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
-        if (lpTM)
-        {
-          var hDC = oSys.Call("user32::GetDC", hWnd);
-          oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
-          oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
-          itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
-          itemHeight += 2; // Adjust for spacing as needed
-          oSys.Call("User32::ReleaseDC", hWnd, hDC);
-          AkelPad.MemFree(lpTM);
-        }
+        var hDC = oSys.Call("user32::GetDC", hWnd);
+        oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
+        oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, oReusables.lpTM);
+        itemHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpTM, 0), DT_DWORD); // tm.tmHeight
+        itemHeight += 2; // Adjust for spacing as needed
+        oSys.Call("User32::ReleaseDC", hWnd, hDC);
       }
       AkelPad.MemCopy(_PtrAdd(lpMIS, 16), itemHeight, DT_DWORD); // lpMIS->itemHeight = itemHeight;
       return 1;
@@ -909,17 +938,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (itemID != -1 && itemID != 0xFFFFFFFF)
       {
         var crTextMatch = Options.TextMatchColor;
-        var crText;
-        var crBk;
-        var crChar;
-        var hBrushBk;
-        var nModeBkOld;
+        var crText, crBk, crChar;
+        var hBrushBk, nModeBkOld;
         var nCharWidth = 0;
-        var x;
-        var y;
-        var i;
-        var j;
-        var c;
+        var x, y, i, j, c;
         var filter = sCmdFilter;
         var match = oMatches[itemID][1];
         var matchType = 0;
@@ -930,7 +952,6 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         var hDC = AkelPad.MemRead(_PtrAdd(lpDIS, _X64 ? 32 : 24), DT_QWORD);
         var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
         var oRect = RectToObj(lpRC);
-        var lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
 
         if (itemState & ODS_SELECTED)
         {
@@ -971,7 +992,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
 
         if (match != undefined && typeof(match) == "string")
         {
-          c = match.substr(0, 1);
+          c = match.charAt(0);
           if (c === "e") // exact match, e.g. "e007"
           {
             matchType = 1;
@@ -988,12 +1009,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         {
           if (Options.UseListView)
           {
-            AkelPad.MemCopy(_PtrAdd(lpRect, 0), 0 /*LVIR_BOUNDS*/, DT_DWORD); // left
-            AkelPad.MemCopy(_PtrAdd(lpRect, 4), j, DT_DWORD); // top
-            AkelPad.MemCopy(_PtrAdd(lpRect, 8), 0, DT_DWORD); // right
-            AkelPad.MemCopy(_PtrAdd(lpRect, 12), 0, DT_DWORD); // bottom
-            AkelPad.SendMessage(hWndCommandsList, LVM_GETSUBITEMRECT, itemID, lpRect);
-            oRect = RectToObj(lpRect);
+            AkelPad.MemCopy(_PtrAdd(oReusables.lpRect, 0), 0 /*LVIR_BOUNDS*/, DT_DWORD); // left
+            AkelPad.MemCopy(_PtrAdd(oReusables.lpRect, 4), j, DT_DWORD); // top
+            AkelPad.MemCopy(_PtrAdd(oReusables.lpRect, 8), 0, DT_DWORD); // right
+            AkelPad.MemCopy(_PtrAdd(oReusables.lpRect, 12), 0, DT_DWORD); // bottom
+            AkelPad.SendMessage(hWndCommandsList, LVM_GETSUBITEMRECT, itemID, oReusables.lpRect);
+            oRect = RectToObj(oReusables.lpRect);
             c = oMatches[itemID][2].lastIndexOf("\t");
             if (j == 0) // command text
             {
@@ -1045,17 +1066,17 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
               case 2: // partial match, "v" in e.g. "xxvxvvxxxxv"
                 if (i >= matchIdx && i - matchIdx < match.length)
                 {
-                  if (match.substr(i - matchIdx, 1) === "v")
+                  if (match.charAt(i - matchIdx) === "v")
                     crChar = crTextMatch;
                 }
                 break;
             }
             oSys.Call("gdi32::SetTextColor", hDC, crChar);
-            c = text.substr(i, 1);
+            c = text.charAt(i);
             oSys.Call("gdi32::TextOut" + _TCHAR, hDC, x, y, c, 1);
-            if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, lpRect)) // using RECT instead of SIZE
+            if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, oReusables.lpRect)) // using RECT instead of SIZE
             {
-              nCharWidth = AkelPad.MemRead(_PtrAdd(lpRect, 0), DT_DWORD);
+              nCharWidth = AkelPad.MemRead(_PtrAdd(oReusables.lpRect, 0), DT_DWORD);
             }
             x += nCharWidth;
           }
@@ -1063,7 +1084,6 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
           oSys.Call("gdi32::SetBkMode", hDC, nModeBkOld);
         }
 
-        AkelPad.MemFree(lpRect);
         return 1;
       }
     }
@@ -1163,12 +1183,10 @@ function CommandsListCallback(hWnd, uMsg, wParam, lParam)
   /*
   else if (uMsg == WM_ERASEBKGND)
   {
-    var lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
     var hDC = wParam;
     var hBrushBk = isApplyingColorTheme() ? hBkColorBrush : oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
-    oSys.Call("user32::GetClientRect", hWnd, lpRect);
-    oSys.Call("user32::FillRect", hDC, lpRect, hBrushBk);
-    AkelPad.MemFree(lpRect);
+    oSys.Call("user32::GetClientRect", hWnd, oReusables.lpRect);
+    oSys.Call("user32::FillRect", hDC, oReusables.lpRect, hBrushBk);
     return 1;
   }
   */
@@ -1245,26 +1263,25 @@ function GetWindowText(hWnd)
   return S;
 }
 
+function posToStr(n)
+{
+  return (n + 10000).toString().slice(1);
+}
+
 function MatchFilter(sFilter, sLine)
 {
-  var i;
-  var j;
-  var c;
-  var m;
+  var i, j;
+  var c, m;
 
   i = sLine.indexOf(sFilter);
   if (i != -1)
-  {
-    m = "" + i;
-    while (m.length < 3)  m = "0" + m;
-    return "e" + m; // exact match
-  }
+    return "e" + posToStr(i); // exact match
 
   j = 0;
   m = "";
   for (i = 0; i < sFilter.length; ++i)
   {
-    c = sFilter.substr(i, 1);
+    c = sFilter.charAt(i);
     if (c != " ") // ' ' matches any character
       j = sLine.indexOf(c, j);
     if (j == -1)
@@ -1337,7 +1354,7 @@ function getCmdShortcutKey(cmdText)
 function createString(c, N)
 {
   // N times repeats c
-  return new Array(N + 1).join(c);
+  return (N == 1) ? c : new Array(N + 1).join(c);
 }
 
 function InitCommandsListView(hLvWnd, width)
@@ -1395,19 +1412,15 @@ function CommandsList_SetCurSel(hListWnd, nItem)
 {
   if (Options.UseListView)
   {
-    var lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
-
     // LVITEM.mask:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_STATE, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 0), LVIF_STATE, DT_DWORD);
     // LVITEM.state:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 12), LVIS_SELECTED|LVIS_FOCUSED, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 12), LVIS_SELECTED|LVIS_FOCUSED, DT_DWORD);
     // LVITEM.stateMask:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 16), LVIS_SELECTED|LVIS_FOCUSED, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 16), LVIS_SELECTED|LVIS_FOCUSED, DT_DWORD);
     // Set the item state:
-    AkelPad.SendMessage(hListWnd, LVM_SETITEMSTATE, nItem, lpLvItem);
+    AkelPad.SendMessage(hListWnd, LVM_SETITEMSTATE, nItem, oReusables.lpLvItem);
     AkelPad.SendMessage(hListWnd, LVM_ENSUREVISIBLE, nItem, FALSE);
-
-    AkelPad.MemFree(lpLvItem);
   }
   else
   {
@@ -1431,8 +1444,6 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
 
   if (Options.UseListView)
   {
-    var lpLvItem = AkelPad.MemAlloc(_X64 ? 72 : 60); // sizeof(LVITEM)
-
     cmdText = getCmdName(cmdName);
     cmdShortcut = getCmdShortcutKey(cmdName);
 
@@ -1445,15 +1456,15 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     }
 
     // LVITEM.mask:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_TEXT, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 0), LVIF_TEXT, DT_DWORD);
     // LVITEM.iItem:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 4), i, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 4), i, DT_DWORD);
     // LVITEM.iSubItem:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 8), 0, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 8), 0, DT_DWORD);
     // LVITEM.pszText:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdText, DT_QWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdText, DT_QWORD);
     // Inserting an item:
-    AkelPad.SendMessage(hListWnd, LVM_INSERTITEMW, 0, lpLvItem);
+    AkelPad.SendMessage(hListWnd, LVM_INSERTITEMW, 0, oReusables.lpLvItem);
 
     if (Options.apply_64bit_rare_fix)
     {
@@ -1461,17 +1472,16 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
     }
 
     // LVITEM.mask:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 0), LVIF_TEXT, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 0), LVIF_TEXT, DT_DWORD);
     // LVITEM.iItem:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 4), i, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 4), i, DT_DWORD);
     // LVITEM.iSubItem:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, 8), 1, DT_DWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, 8), 1, DT_DWORD);
     // LVITEM.pszText:
-    AkelPad.MemCopy(_PtrAdd(lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdShortcut, DT_QWORD);
+    AkelPad.MemCopy(_PtrAdd(oReusables.lpLvItem, _X64 ? 24 : 20), Options.apply_64bit_rare_fix ? lpCmdTextW : cmdShortcut, DT_QWORD);
     // Inserting an item:
-    AkelPad.SendMessage(hListWnd, LVM_SETITEMTEXTW, i, lpLvItem);
+    AkelPad.SendMessage(hListWnd, LVM_SETITEMTEXTW, i, oReusables.lpLvItem);
 
-    AkelPad.MemFree(lpLvItem);
     if (Options.apply_64bit_rare_fix)
     {
       AkelPad.MemFree(lpCmdTextW);
@@ -1485,10 +1495,7 @@ function CommandsList_AddItem(hListWnd, cmdName, cmdIdx, i)
 
 function CommandsList_Fill(hListWnd, sFilter)
 {
-  var i;
-  var n;
-  var C;
-  var cmdText;
+  var i, n, C, cmdText;
   var Matches = [];
 
   if (sFilter === prevCmdFilter)
@@ -1743,9 +1750,7 @@ function ReadLngFile()
 
   if (oFSO.FileExists(sLngFile))
   {
-    var c;
-    var s;
-    var m;
+    var c, s, m;
     var iFirstErrLine = -1;
     var section = "";
     var oTextStream;
@@ -1782,7 +1787,7 @@ function ReadLngFile()
     {
       oTextStream.Close();
       ShowErr("File is empty:\n\"" + sLngFile + "\"");
-      WScript.Quit();
+      quit();
     }
 
     while (!oTextStream.AtEndOfStream)
@@ -1865,7 +1870,7 @@ function ReadLngFile()
         oTextStream.Close();
         ShowErr("Unexpected item in \"" + getFileNameExt(sLngFile) + "\":\n\nLine " + iFirstErrLine + ": " + s);
         OpenFileEx(sLngFile, iFirstErrLine);
-        WScript.Quit();
+        quit();
       }
     }
     oTextStream.Close();
@@ -1874,13 +1879,13 @@ function ReadLngFile()
     {
       ShowErr("Unrecognized items in \"" + getFileNameExt(sLngFile) + "\":\n\n" + errLines.join("\n"));
       OpenFileEx(sLngFile, iFirstErrLine);
-      WScript.Quit();
+      quit();
     }
   }
   else
   {
     ShowErr("File not found:\n\"" + sLngFile + "\"");
-    WScript.Quit();
+    quit();
   }
 }
 
