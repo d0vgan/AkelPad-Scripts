@@ -1672,15 +1672,15 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     {
       sFindWhat = arrFindWhat[i]; //WScript.Echo(sFindWhat);
       n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-      if (fromBeginning && n == n1)
-      {
-        n = AkelPad.GetSelEnd();
-        if (n == n2)
-        {
-          nFlags -= FRF_BEGINNING;
-          AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-        }
-      }
+      // if (fromBeginning && n == n1)
+      // {
+      //   n = AkelPad.GetSelEnd();
+      //   if (n == n2)
+      //   {
+      //     nFlags -= FRF_BEGINNING;
+      //     AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
+      //   }
+      // }
       if (n !== -1)
         break;
     }
