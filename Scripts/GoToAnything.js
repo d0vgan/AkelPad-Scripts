@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.12
+// Version: 0.8.0
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
