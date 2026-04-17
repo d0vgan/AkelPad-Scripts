@@ -1570,22 +1570,12 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
   if (sFindWhat != "")
   {
-    var n1 = -1;
-    var n2 = -1;
     var n = -1;
     var nFlags = FRF_DOWN|FRF_CYCLESEARCH;
     var arrFindWhat = [];
     if (fromBeginning)
     {
       nFlags |= FRF_BEGINNING;
-      n1 = AkelPad.GetSelStart();
-      n2 = AkelPad.GetSelEnd();
-      if (n1 > n2)
-      {
-        n = n1;
-        n1 = n2;
-        n2 = n;
-      }
     }
     if (nFindNext < 0)
     {
@@ -1672,15 +1662,6 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     {
       sFindWhat = arrFindWhat[i]; //WScript.Echo(sFindWhat);
       n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-      // if (fromBeginning && n == n1)
-      // {
-      //   n = AkelPad.GetSelEnd();
-      //   if (n == n2)
-      //   {
-      //     nFlags -= FRF_BEGINNING;
-      //     AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-      //   }
-      // }
       if (n !== -1)
         break;
     }
