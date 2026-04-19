@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.7.11
+// Version: 0.8.0
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -66,15 +66,21 @@ var Options = {
   Char_GoToText1 : "@",
   Char_GoToText2 : "#",
   Char_GoToLine  : ":",
-  MatchOpenedFilesFirst : true, // opened files are always at the top of the matches
   ApplyColorTheme : true, // use AkelPad's colors
   IsTransparent : false, // whether the popup dialog is tranparent
   OpaquePercent : 80, // applies when IsTransparent is `true`
+  ShowWindowTitle : false, // false -> no window title
+  ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
+  ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
+  MatchOpenedFilesFirst : true, // opened files are always at the top of the matches
+  IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
   SaveDlgPosSize : true, // whether to save the popup dialog position and size
   SaveLastFilter : false, // experimental: whether to save the last filter
   SaveAutoPreview : true, // whether to save the AutoPreviewSelectedFile value
   SaveStartDir : true, // save the start (project) directory
   VisualPathDepth : 4, // visual path depth of items in the file list
+  AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
+  ExcludePreviewedFilesFromRecentFiles : true, // don't update Recent Files while previewing
   CheckIfFavouriteFileExist : true, // check if files from Favourites exist
   CheckIfRecentFileExist : true, // check if files from Recent Files exist
   FoldersInFavourites : false, // experimental: folders in Favourites
@@ -95,11 +101,6 @@ var Options = {
     "chm", "docx", "djv", "djvu", "odb", "odf", "odp", "ods", "odt", "pdf", "ppsx", "ppt", "pptx", "xls", "xlsx", // documents
     "db", "bin", "iso", "obj", "o" // binaries
   ], // -- these files will be ignored
-  ShowItemPrefixes : true, // whether to show the [A], [D], [F] and [H] prefixes
-  ShowNumberOfItemsInTitle : true, // whether to add " [filtered/total]" to the title
-  IsTextSearchFuzzy : true, // when true, @text also matches "toexact" and "theexit"
-  AutoPreviewSelectedFile : true, // when true, the selected file is automatically previewed
-  ExcludePreviewedFilesFromRecentFiles : true, // don't update Recent Files while previewing
   TextMatchColor : 0x0040FF, // color of the matching parts of file names: 0xBBGGRR
   TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
                                 // or specify "" to use the TextMatchColor above
@@ -110,6 +111,7 @@ var Options = {
                             // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
                             // or specify "" to use the system's color (COLOR_HIGHLIGHT)
 
+  apply_match_color : true, // true -> apply TextMatchColor to the matching parts
   apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
 
@@ -176,6 +178,13 @@ var COLOR_WINDOWTEXT    = 8;
 var COLOR_HIGHLIGHT     = 13;
 var COLOR_HIGHLIGHTTEXT = 14;
 var MB_OK = 0x00000;
+var MB_ICONERROR = 0x0010;
+var HTCAPTION     = 2;
+var HTLEFT        = 10;
+var HTRIGHT       = 11;
+var HTBOTTOM      = 15;
+var HTBOTTOMLEFT  = 16;
+var HTBOTTOMRIGHT = 17;
 
 //Windows Messages
 var WM_CREATE          = 0x0001;
@@ -192,6 +201,8 @@ var WM_SETFONT         = 0x0030;
 var WM_GETFONT         = 0x0031;
 var WM_NOTIFY          = 0x004E;
 var WM_HELP            = 0x0053;
+var WM_NCHITTEST       = 0x0084;
+var WM_NCLBUTTONDOWN   = 0x00A1;
 var WM_KEYDOWN         = 0x0100;
 var WM_KEYUP           = 0x0101;
 var WM_CHAR            = 0x0102;
@@ -226,6 +237,7 @@ var WS_CAPTION = 0x00C00000;
 var WS_VISIBLE = 0x10000000;
 var WS_CHILD   = 0x40000000;
 var WS_POPUP   = 0x80000000;
+var WS_CLIPSIBLINGS = 0x04000000;
 var WS_EX_CONTEXTHELP  = 0x00000400;
 var WS_EX_LAYERED      = 0x00080000;
 var ES_AUTOHSCROLL     = 0x0080;
@@ -259,6 +271,9 @@ var FWF_BYFILENAME = 5; //Retrieve frame data by full file name. lParam is full 
 var FWF_BYTABINDEX = 8; //Retrieve frame data by tab item zero based index. lParam is tab item index.
 var FWF_TABNEXT = 9; //Retrieve next tab item frame data. lParam is a frame data pointer.
 var FWF_TABPREV = 10; //Retrieve previous tab item frame data. lParam is a frame data pointer.
+
+//AkelPad Constants: AKD_FRAMEACTIVATE
+var FWA_NOUPDATEORDER = 0x00000001;
 
 //AkelPad Constants: AKD_GETFRAMEINFO
 var FI_WNDEDIT = 2;
@@ -300,6 +315,7 @@ var AKD_OPENDOCUMENTW = (WM_USER + 157);
 var AKD_GOTOW  = (WM_USER + 182);
 var AKD_GETFRAMEINFO = (WM_USER + 199);
 var AKD_GETEDITINFO = (WM_USER + 200);
+var AKD_PROGRAMARCHITECTURE = (WM_USER + 202);
 var AKD_RECENTFILES = (WM_USER + 214);
 var AKD_FRAMEACTIVATE = (WM_USER + 261);
 var AKD_FRAMEDESTROY = (WM_USER + 263);
@@ -307,6 +323,7 @@ var AKD_FRAMEFIND = (WM_USER + 264);
 var AKD_FRAMEFINDW = (WM_USER + 266);
 var AKD_FRAMEISVALID = (WM_USER + 269);
 var AKD_FRAMEINDEX = (WM_USER + 270);
+var AKD_FRAMEMOVE = (WM_USER + 273);
 var AEM_GETUNWRAPLINE = (WM_USER + 2119);
 var AEM_SCROLLTOPOINT = (WM_USER + 2159);
 
@@ -340,6 +357,8 @@ var oInitialSettings = undefined;
 //open_file flags
 var fofApplyActiveFrame = 0x01;
 var fofPreviewFile = 0x02;
+var fofFinalChoice = 0x04;
+var fofMainExit = 0x10;
 
 var IDX_ID      = 0;
 var IDX_CLASS   = 1;
@@ -354,6 +373,11 @@ var IDX_H       = 8;
 var aWnd          = [];
 var IDC_ED_FILTER = 1011;
 var IDC_LB_ITEMS  = 1021;
+
+var oReusables = {
+  lpTM : undefined, // WM_MEASUREITEM
+  lpRect : undefined // WM_DRAWITEM, WM_ERASEBKGND
+};
 
 function createConsts()
 {
@@ -395,6 +419,8 @@ function createState()
   s.isFavouritesLoaded = false;
   s.isRecentFilesLoaded = false;
   s.isIgnoringEscKeyUp = false;
+  s.isShowingHelp = false;
+  s.isAkdFrameMoveAvailable = (compareAkelPadArchitecture(make_identifier(2, 2, 12, 0)) >= 0);
   return s;
 }
 
@@ -421,7 +447,7 @@ function memFree(lpBuf)
 
 if (hWndScriptDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sScriptClassName, 0))
 {
-  if (! oSys.Call("user32::IsWindowVisible", hWndScriptDlg))
+  if (!oSys.Call("user32::IsWindowVisible", hWndScriptDlg))
     oSys.Call("user32::ShowWindow", hWndScriptDlg, SW_SHOWNA);
   if (oSys.Call("user32::IsIconic", hWndScriptDlg))
     oSys.Call("user32::ShowWindow", hWndScriptDlg, SW_RESTORE);
@@ -451,7 +477,7 @@ function runScript()
       {
         hBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nBkColorRGB);
       }
-      if (Options.TextMatchColor_ThemeVar != undefined && Options.TextMatchColor_ThemeVar != "")
+      if (Options.TextMatchColor_ThemeVar)
       {
         var sMatchColor = getColorThemeVariable(hWndEdit, Options.TextMatchColor_ThemeVar);
         nMatchColorRGB = getRgbIntFromHex(sMatchColor);
@@ -460,7 +486,7 @@ function runScript()
           Options.TextMatchColor = nMatchColorRGB;
         }
       }
-      if (Options.SelBkColor_ThemeVar != undefined && Options.SelBkColor_ThemeVar != "")
+      if (Options.SelBkColor_ThemeVar)
       {
         var sSelBkColor = getColorThemeVariable(hWndEdit, Options.SelBkColor_ThemeVar);
         nSelBkColorRGB = getRgbIntFromHex(sSelBkColor);
@@ -469,7 +495,7 @@ function runScript()
           hSelBkColorBrush = oSys.Call("gdi32::CreateSolidBrush", nSelBkColorRGB);
         }
       }
-      if (Options.SelTextColor_ThemeVar != undefined && Options.SelTextColor_ThemeVar != "")
+      if (Options.SelTextColor_ThemeVar)
       {
         var sSelTextColor = getColorThemeVariable(hWndEdit, Options.SelTextColor_ThemeVar);
         nSelTextColorRGB = getRgbIntFromHex(sSelTextColor);
@@ -484,12 +510,27 @@ function runScript()
   var nDlgWidth  = 600;
   var nDlgHeight = 530;
   var nEditHeight = 20;
+  var nEdY = 4;
+  var nLbY = nEditHeight + (Options.ShowWindowTitle ? 6 : 8);
   var dwExStyle = (Options.IsTransparent ? WS_EX_LAYERED : 0) | WS_EX_CONTEXTHELP;
+  var dwStyle = (WS_VISIBLE|WS_POPUP|WS_BORDER) | (Options.ShowWindowTitle ? (WS_CAPTION|WS_SYSMENU|WS_SIZEBOX) : WS_CLIPSIBLINGS);
   var nEdStyle = WS_VISIBLE|WS_CHILD|WS_TABSTOP|ES_AUTOHSCROLL;
   //Windows         ID,      CLASS,        HWND,EXSTYLE,   STYLE,   X,    Y,          W,   H
-  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,     4,         -1, nEditHeight]);
-  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_NODATA;
-  aWnd.push([IDC_LB_ITEMS, "LISTBOX",       0,      0, nLbStyle,  2, nEditHeight+6, -1, -1]);
+  aWnd.push([IDC_ED_FILTER,  "EDIT",          0,      0, nEdStyle,  2,    nEdY,      -1, nEditHeight]);
+  var nLbStyle = WS_VISIBLE|WS_CHILD|WS_VSCROLL|WS_BORDER|WS_TABSTOP|LBS_USETABSTOPS|LBS_NOTIFY;
+  if (Options.apply_match_color)
+  {
+    nLbStyle |= (LBS_OWNERDRAWFIXED|LBS_NODATA);
+  }
+  aWnd.push([IDC_LB_ITEMS,   "LISTBOX",       0,      0, nLbStyle,  2,    nLbY, -1, -1]);
+
+  oReusables.lpTM = AkelPad.MemAlloc(64); // sizeof(TEXTMETRIC)
+  oReusables.lpRect = AkelPad.MemAlloc(16); // sizeof(RECT)
+  if (!oReusables.lpTM || !oReusables.lpRect)
+  {
+    ShowErr("Failed to allocate memory for lpTM or lpRect");
+    quit();
+  }
 
   AkelPad.ScriptNoMutex(0x11 /*ULT_LOCKSENDMESSAGE|ULT_UNLOCKSCRIPTSQUEUE*/);
   AkelPad.WindowRegisterClass(sScriptClassName);
@@ -497,7 +538,7 @@ function runScript()
   var rectMainWnd = GetWindowRect(hWndMain);
   var rectEditWnd = GetWindowRect(hWndEdit);
   var x = rectMainWnd.X + Math.floor((rectMainWnd.W - nDlgWidth)/2);
-  var y = rectEditWnd.Y + 10;
+  var y = rectEditWnd.Y;
   if (Options.SaveDlgPosSize ||
       Options.SaveLastFilter ||
       Options.SaveAutoPreview ||
@@ -545,7 +586,7 @@ function runScript()
                       dwExStyle,        // dwExStyle
                       sScriptClassName, // lpClassName
                       sScriptName,      // lpWindowName
-                      WS_VISIBLE|WS_POPUP|WS_CAPTION|WS_SYSMENU|WS_BORDER|WS_SIZEBOX,  // style
+                      dwStyle,          // style
                       x,                // x
                       y,                // y
                       nDlgWidth,        // nWidth
@@ -563,6 +604,13 @@ function runScript()
   AkelPad.WindowGetMessage();
   AkelPad.WindowUnregisterClass(sScriptClassName);
 
+  cleanup();
+
+  executeActionItem();
+}
+
+function cleanup()
+{
   if (hSelBkColorBrush)
   {
     oSys.Call("gdi32::DeleteObject", hSelBkColorBrush);
@@ -573,6 +621,27 @@ function runScript()
     oSys.Call("gdi32::DeleteObject", hBkColorBrush);
   }
 
+  if (oReusables.lpTM)
+  {
+    AkelPad.MemFree(oReusables.lpTM);
+    oReusables.lpTM = undefined;
+  }
+
+  if (oReusables.lpRect)
+  {
+    AkelPad.MemFree(oReusables.lpRect);
+    oReusables.lpRect = undefined;
+  }
+}
+
+function quit()
+{
+  cleanup();
+  WScript.Quit();
+}
+
+function executeActionItem()
+{
   function restore_initial_tab()
   {
     if (AkelPad.IsMDI() != WMD_SDI)
@@ -586,7 +655,7 @@ function runScript()
       {
         if (oState.lpInitialFrame != getCurrentFrame())
         {
-          activateFrame(oState.lpInitialFrame);
+          activateFrame(oState.lpInitialFrame, 0);
         }
         if (oState.nInitialSelStart != AkelPad.GetSelStart() ||
             oState.nInitialSelEnd != AkelPad.GetSelEnd())
@@ -648,7 +717,7 @@ function runScript()
       if (isFrameValid(oState.lpTemporaryFrame))
       {
         if (oState.lpTemporaryFrame != getCurrentFrame())
-          activateFrame(oState.lpTemporaryFrame);
+          activateFrame(oState.lpTemporaryFrame, 0);
       }
       else
       {
@@ -658,7 +727,7 @@ function runScript()
           var lpExistingFrame = getFrameByFullPath(sFullPath);
           if (lpExistingFrame && lpExistingFrame != getCurrentFrame())
           {
-            activateFrame(lpExistingFrame);
+            activateFrame(lpExistingFrame, 0);
             oState.sLastActivatedFilePath = sFullPath;
           }
           else
@@ -671,7 +740,7 @@ function runScript()
       // either [A] item has been selected or e.g. Alt+F has been pressed
       if (oState.ActionItem >= Consts.nOpenedFilesOffset)
       {
-        activateOpenedFile(oState.ActionItem, 0);
+        activateOpenedFile(oState.ActionItem, fofMainExit);
       }
       if (isFrameValid(oState.lpTemporaryFrame) && oState.lpTemporaryFrame != getCurrentFrame())
       {
@@ -740,7 +809,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0)
       if (Options.AutoPreviewSelectedFile)
       {
-        FilesList_ActivateSelectedItem(hWndFilesList);
+        FilesList_ActivateSelectedItem(hWndFilesList, 0);
       }
     }
     else
@@ -770,10 +839,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     else if (wParam == VK_RETURN)
     {
       oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
-      if (!Options.AutoPreviewSelectedFile)
-      {
-        FilesList_ActivateSelectedItem(hWndFilesList);
-      }
+      FilesList_ActivateSelectedItem(hWndFilesList, fofFinalChoice);
       oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
     }
     //else if (wParam == VK_F1)
@@ -802,12 +868,19 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (LOWORD(wParam) == IDC_LB_ITEMS)
       {
         oState.ActionItem = FilesList_GetCurSelData(hWndFilesList);
-        if (!Options.AutoPreviewSelectedFile)
-        {
-          FilesList_ActivateSelectedItem(hWndFilesList);
-        }
+        FilesList_ActivateSelectedItem(hWndFilesList, fofFinalChoice);
         oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
       }
+    }
+  }
+
+  else if (uMsg == WM_LBUTTONDOWN)
+  {
+    if (!Options.ShowWindowTitle)
+    {
+      oSys.Call("user32::ReleaseCapture");
+      AkelPad.SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+      return TRUE;
     }
   }
 
@@ -817,7 +890,38 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     var rectEdit = GetChildWindowRect(hWndFilterEdit);
     var rectLB = GetChildWindowRect(hWndFilesList);
     ResizeWindow(hWndFilterEdit, rectClient.W - 4, rectEdit.H);
-    ResizeWindow(hWndFilesList, rectClient.W - 4, rectClient.H - rectLB.Y + 4);
+    ResizeWindow(hWndFilesList, rectClient.W - 4, rectClient.H - rectLB.Y + (Options.ShowWindowTitle ? 4 : 0));
+  }
+
+  else if (uMsg == WM_NCHITTEST)
+  {
+    var x, y;
+    var borderWidth = 6;
+    var oRect = GetClientRect(hWnd);
+    var lpPoint = memAlloc(8); // sizeof(POINT)
+
+    AkelPad.MemCopy(_PtrAdd(lpPoint, 0), LOWORD(lParam), DT_DWORD); // x
+    AkelPad.MemCopy(_PtrAdd(lpPoint, 4), HIWORD(lParam), DT_DWORD); // y
+    oSys.Call("user32::ScreenToClient", hWnd, lpPoint);
+    x = AkelPad.MemRead(_PtrAdd(lpPoint, 0), DT_DWORD);
+    y = AkelPad.MemRead(_PtrAdd(lpPoint, 4), DT_DWORD);
+    memFree(lpPoint);
+
+    if (y >= oRect.Y + oRect.H - borderWidth)
+    {
+      if (x >= oRect.X + oRect.W - borderWidth)
+        return HTBOTTOMRIGHT;
+      if (x <= borderWidth)
+        return HTBOTTOMLEFT;
+      return HTBOTTOM;
+    }
+
+    if (x >= oRect.X + oRect.W - borderWidth)
+      return HTRIGHT;
+    if (x <= borderWidth)
+      return HTLEFT;
+
+    return HTCAPTION;
   }
 
   else if (uMsg == WM_ACTIVATE)
@@ -838,17 +942,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       var itemHeight = 20; // default
       if (hGuiFont)
       {
-        var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
-        if (lpTM)
-        {
-          var hDC = oSys.Call("user32::GetDC", hWnd);
-          oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
-          oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
-          itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
-          itemHeight += 2; // Adjust for spacing as needed
-          oSys.Call("User32::ReleaseDC", hWnd, hDC);
-          memFree(lpTM);
-        }
+        var hDC = oSys.Call("user32::GetDC", hWnd);
+        oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
+        oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, oReusables.lpTM);
+        itemHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpTM, 0), DT_DWORD); // tm.tmHeight
+        itemHeight += 2; // Adjust for spacing as needed
+        oSys.Call("User32::ReleaseDC", hWnd, hDC);
       }
       AkelPad.MemCopy(_PtrAdd(lpMIS, 16), itemHeight, DT_DWORD); // lpMIS->itemHeight = itemHeight;
       return 1;
@@ -864,18 +963,13 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (itemID != -1 && itemID != 0xFFFFFFFF)
       {
         var crTextMatch = Options.TextMatchColor;
-        var crText;
-        var crBk;
-        var crChar;
+        var crText, crBk, crChar;
         var hBrushBk;
         var nModeBkOld;
         //var itemHeight;
         var nCharWidth = 0;
         //var nCharHeight = 0;
-        var x;
-        var y;
-        var i;
-        var c;
+        var x, y, i, c;
         var filter = oState.sLastFullFilter;
         var match = oFileListItems[itemID][0];
         var matchType = 0;
@@ -886,12 +980,10 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
         var hDC = AkelPad.MemRead(_PtrAdd(lpDIS, _X64 ? 32 : 24), DT_QWORD);
         var lpRC = _PtrAdd(lpDIS, _X64 ? 40 : 28);
         var rcItem = RectToArray(lpRC);
-        //var lpTM = memAlloc(64); // sizeof(TEXTMETRIC)
-        var lpSize = memAlloc(16); // sizeof(SIZE)
 
         //oSys.Call("gdi32::SelectObject", hDC, hGuiFont);
-        //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, lpTM);
-        //itemHeight = AkelPad.MemRead(_PtrAdd(lpTM, 0), DT_DWORD); // tm.tmHeight
+        //oSys.Call("gdi32::GetTextMetrics" + _TCHAR, hDC, oReusables.lpTM);
+        //itemHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpTM, 0), DT_DWORD); // tm.tmHeight
 
         if (itemState & ODS_SELECTED)
         {
@@ -984,32 +1076,30 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
             case 3: // partial name match
               if (i > matchIdx && i + 1 - matchIdx < match.length)
               {
-                if (match.substr(i + 1 - matchIdx, 1) === "v")
+                if (match.charAt(i + 1 - matchIdx) === "v")
                   crChar = crTextMatch;
               }
               break;
             case 4: // partial pathname match
-              if (i + 2 < match.length && match.substr(i + 2, 1) === "v")
+              if (i + 2 < match.length && match.charAt(i + 2) === "v")
               {
                 crChar = crTextMatch;
               }
               break;
           }
           oSys.Call("gdi32::SetTextColor", hDC, crChar);
-          c = text.substr(i, 1);
+          c = text.charAt(i);
           oSys.Call("gdi32::TextOut" + _TCHAR, hDC, x, y, c, 1);
-          if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, lpSize))
+          if (oSys.Call("gdi32::GetTextExtentPoint32" + _TCHAR, hDC, c, 1, oReusables.lpRect)) // using RECT instead of SIZE
           {
-            nCharWidth = AkelPad.MemRead(_PtrAdd(lpSize, 0), DT_DWORD);
-            //nCharHeight = AkelPad.MemRead(_PtrAdd(lpSize, 4), DT_DWORD);
+            nCharWidth = AkelPad.MemRead(_PtrAdd(oReusables.lpRect, 0), DT_DWORD);
+            //nCharHeight = AkelPad.MemRead(_PtrAdd(oReusables.lpRect, 4), DT_DWORD);
           }
           x += nCharWidth;
         }
         oSys.Call("gdi32::SetTextColor", hDC, crText);
         oSys.Call("gdi32::SetBkMode", hDC, nModeBkOld);
 
-        memFree(lpSize);
-        // memFree(lpTM);
         return 1;
       }
     }
@@ -1172,7 +1262,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       {
         if (!Options.AutoPreviewSelectedFile)
         {
-          FilesList_ActivateSelectedItem(hWndFilesList);
+          FilesList_ActivateSelectedItem(hWndFilesList, 0);
         }
         if (IsShiftPressed())
         {
@@ -1187,7 +1277,7 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       {
         if (!Options.AutoPreviewSelectedFile)
         {
-          FilesList_ActivateSelectedItem(hWndFilesList);
+          FilesList_ActivateSelectedItem(hWndFilesList, 0);
         }
         if (IsShiftPressed()) // Ctrl+Shift+Q
         {
@@ -1289,12 +1379,12 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
         do
         {
           dir = AkelPad.InputBox(AkelPad.GetMainWnd(), WScript.ScriptName, title, startDirResult.dir);
-          if (dir == undefined || dir === "")
+          if (!dir)
             break;
 
           while (dir.length > 0)
           {
-            c = dir.substr(dir.length - 1, 1);
+            c = dir.charAt(dir.length - 1);
             if (c === "\\" || c === "/")
               dir = dir.substr(0, dir.length - 1);
             else
@@ -1373,7 +1463,7 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
       AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
       if (Options.AutoPreviewSelectedFile)
       {
-        FilesList_ActivateSelectedItem(hWnd);
+        FilesList_ActivateSelectedItem(hWnd, 0);
       }
       AkelPad.WindowNoNextProc(hSubclassFilesList);
       return 0;
@@ -1417,7 +1507,7 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
     AkelPad.WindowNextProc(hSubclassFilesList, hWnd, uMsg, wParam, lParam);
     if (Options.AutoPreviewSelectedFile)
     {
-      FilesList_ActivateSelectedItem(hWnd);
+      FilesList_ActivateSelectedItem(hWnd, 0);
     }
     AkelPad.WindowNoNextProc(hSubclassFilesList);
     return 0;
@@ -1425,12 +1515,10 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   /*
   else if (uMsg == WM_ERASEBKGND)
   {
-    var lpRect = memAlloc(16); // sizeof(RECT)
     var hDC = wParam;
     var hBrushBk = isApplyingColorTheme() ? hBkColorBrush : oSys.Call("user32::GetSysColorBrush", COLOR_WINDOW);
-    oSys.Call("user32::GetClientRect", hWnd, lpRect);
-    oSys.Call("user32::FillRect", hDC, lpRect, hBrushBk);
-    memFree(lpRect);
+    oSys.Call("user32::GetClientRect", hWnd, oReusables.lpRect);
+    oSys.Call("user32::FillRect", hDC, oReusables.lpRect, hBrushBk);
     return 1;
   }
   */
@@ -1444,12 +1532,12 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
   var i;
   var c;
 
-  if (sFilter != undefined && sFilter != "")
+  if (sFilter)
   {
     i = GetSpecialPosInFilter(sFilter);
     if (i != -1)
     {
-      c = sFilter.substr(i, 1);
+      c = sFilter.charAt(i);
       if (c === Options.Char_GoToText1 || c === Options.Char_GoToText2)
       {
         if (c === Options.Char_GoToText1 && nFindNext == 0)
@@ -1482,22 +1570,12 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
   if (sFindWhat != "")
   {
-    var n1 = -1;
-    var n2 = -1;
     var n = -1;
     var nFlags = FRF_DOWN|FRF_CYCLESEARCH;
     var arrFindWhat = [];
     if (fromBeginning)
     {
       nFlags |= FRF_BEGINNING;
-      n1 = AkelPad.GetSelStart();
-      n2 = AkelPad.GetSelEnd();
-      if (n1 > n2)
-      {
-        n = n1;
-        n1 = n2;
-        n2 = n;
-      }
     }
     if (nFindNext < 0)
     {
@@ -1584,15 +1662,6 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
     {
       sFindWhat = arrFindWhat[i]; //WScript.Echo(sFindWhat);
       n = AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-      if (fromBeginning && n == n1)
-      {
-        n = AkelPad.GetSelEnd();
-        if (n == n2)
-        {
-          nFlags -= FRF_BEGINNING;
-          AkelPad.TextFind(AkelPad.GetEditWnd(), sFindWhat, nFlags);
-        }
-      }
       if (n !== -1)
         break;
     }
@@ -1620,7 +1689,7 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
 function GetSpecialPosInFilter(sFilter)
 {
-  if (sFilter == undefined || sFilter === "")
+  if (!sFilter)
     return -1;
 
   var i1 = sFilter.indexOf(Options.Char_GoToText1);
@@ -1633,7 +1702,7 @@ function GetSpecialPosInFilter(sFilter)
   i1 = sFilter.lastIndexOf(Options.Char_GoToLine);
   if (i1 !== -1)
   {
-    var c = sFilter.substr(i1 + 1, 1);
+    var c = sFilter.charAt(i1 + 1);
     if (c === "\\" || c === "/")
       i1 = -1;
   }
@@ -1666,17 +1735,15 @@ function FilesList_AddItem(hListWnd, fileName)
 
 function FilesList_Fill(hListWnd, sFilter)
 {
-  var i;
-  var n;
-  var fpath;
-  var item;
+  var i, n;
+  var fpath, item;
   var totalItems = 0;
   var matches = [];
   var activeFilePaths = [];
 
   function matches_add_if_match(offset, fname)
   {
-    if (sFilter == undefined || sFilter === "")
+    if (!sFilter)
     {
       var m = [];
       m.push(offset);  // match=offset
@@ -1780,6 +1847,18 @@ function FilesList_Fill(hListWnd, sFilter)
 
   oFileListItems = matches; // [0] - match, [1] - offset, [2] - name
 
+  /*
+  if (sFilter && sFilter.length > 2)
+  {
+    var s = "";
+    for (i = 0; i < 10; ++i)
+    {
+      s += matches[i][0] + ", " + matches[i][2]  + "\n";
+    }
+    WScript.Echo(s);
+  }
+  */
+
   n = oFileListItems.length;
   for (i = 0; i < n; ++i)
   {
@@ -1793,11 +1872,11 @@ function FilesList_Fill(hListWnd, sFilter)
     FilesList_SetCurSel(hListWnd, 0);
     if (Options.AutoPreviewSelectedFile)
     {
-      FilesList_ActivateSelectedItem(hListWnd);
+      FilesList_ActivateSelectedItem(hListWnd, 0);
     }
   }
 
-  if (Options.ShowNumberOfItemsInTitle)
+  if (Options.ShowWindowTitle && Options.ShowNumberOfItemsInTitle)
   {
     var title = sScriptName + "  [" + oFileListItems.length + "/" + totalItems + "]";
     var hDlg = oSys.Call("user32::GetParent", hListWnd);
@@ -1823,13 +1902,13 @@ function open_file(filePath, flags)
     var dwFlags = 0x00F;
     var hDocEd = 0;
 
-    if (filePath == undefined || filePath == "")
+    if (!filePath)
       return -1; // error
 
     if (isFrameValid(oState.lpTemporaryFrame))
     {
       if (oState.lpTemporaryFrame != getCurrentFrame())
-        activateFrame(oState.lpTemporaryFrame);
+        activateFrame(oState.lpTemporaryFrame, 0);
       if (getFrameFileName(oState.lpTemporaryFrame) == filePath)
         return 0; // success
 
@@ -1922,6 +2001,7 @@ function activateOpenedFile(offset, flags)
     // Maybe the same file has been opened in another frame (tab)?
     if (flags & fofApplyActiveFrame)
       flags -= fofApplyActiveFrame;
+
     lpExistingFrame = getFrameByFullPath(af.path);
     if (lpExistingFrame)
       af.lpFrame = lpExistingFrame;
@@ -1935,10 +2015,22 @@ function activateOpenedFile(offset, flags)
 
   if (lpExistingFrame && af.lpFrame != getCurrentFrame())
   {
-    activateFrame(af.lpFrame);
+    var nFlags = 0;
+    if (oState.isAkdFrameMoveAvailable && !(flags & (fofFinalChoice | fofMainExit)))
+      nFlags = FWA_NOUPDATEORDER;
+    activateFrame(af.lpFrame, nFlags);
     if (flags & fofApplyActiveFrame)
       apply_active_frame(af.lpFrame);
     oState.sLastActivatedFilePath = af.path;
+  }
+
+  if ((flags & fofFinalChoice) && oState.isAkdFrameMoveAvailable)
+  {
+    var lpFrameIndex = memAlloc(_X64 ? 16 : 8); // sizeof(FRAMEINDEX)
+    AkelPad.MemCopy(_PtrAdd(lpFrameIndex, 0), getCurrentFrame(), DT_QWORD);
+    AkelPad.MemCopy(_PtrAdd(lpFrameIndex, _X64 ? 8 : 4), -1, DT_DWORD);
+    AkelPad.SendMessage(hWndMain, AKD_FRAMEMOVE, TRUE, lpFrameIndex);
+    memFree(lpFrameIndex);
   }
 }
 
@@ -1955,11 +2047,14 @@ function getFullPathByOffset(offset)
   return "";
 }
 
-function FilesList_ActivateSelectedItem(hListWnd)
+function FilesList_ActivateSelectedItem(hListWnd, flags)
 {
   var offset = FilesList_GetCurSelData(hListWnd);
   if (offset >= Consts.nDirFilesOffset)
   {
+    if ((flags & fofFinalChoice) && Options.AutoPreviewSelectedFile)
+      return;
+
     var sFullPath = getFullPathByOffset(offset);
     if (sFullPath != "")
     {
@@ -1984,7 +2079,7 @@ function FilesList_ActivateSelectedItem(hListWnd)
   }
   else if (offset >= Consts.nOpenedFilesOffset)
   {
-    activateOpenedFile(offset, fofApplyActiveFrame | fofPreviewFile);
+    activateOpenedFile(offset, fofApplyActiveFrame | fofPreviewFile | flags);
   }
 
   if (AkelPad.IsMDI() == WMD_PMDI)
@@ -1999,15 +2094,27 @@ function FilesList_ActivateSelectedItem(hListWnd)
   }
 }
 
+function isMatchTypeSame(s1, s2)
+{
+  return (typeof(s1) == "string" && typeof(s2) == "string" &&
+          s1.charAt(0) == s2.charAt(0) && s1.charAt(1) == s2.charAt(1));
+}
+
 function compareByMatch(m1, m2)
 {
   if (Options.MatchOpenedFilesFirst)
   {
     // pre-comparing by offset: opened files first
     if (m1[1] < Consts.nDirFilesOffset && m2[1] >= Consts.nDirFilesOffset)
-      return -1;
-    if (m1[1] >= Consts.nDirFilesOffset && m2[1] < Consts.nDirFilesOffset)
-      return 1;
+    {
+      if (isMatchTypeSame(m1[0], m2[0]))
+        return -1;
+    }
+    else if (m1[1] >= Consts.nDirFilesOffset && m2[1] < Consts.nDirFilesOffset)
+    {
+      if (isMatchTypeSame(m1[0], m2[0]))
+        return 1;
+    }
   }
   // first, comparing by match
   if (m1[0] < m2[0])
@@ -2022,27 +2129,26 @@ function compareByMatch(m1, m2)
   return 0;
 }
 
+function posToStr(n)
+{
+  return (n + 10000).toString().slice(1);
+}
+
 function MatchFilter(sFilter, sFilePath)
 {
-  var i;
-  var j;
-  var c;
-  var m;
+  var i, j, k;
+  var c, m;
   var fname = getFileName(sFilePath);
 
-  i = fname.indexOf(sFilter)
+  i = fname.indexOf(sFilter); // position in the fname
   if (i !== -1)
-  {
-    m = "" + i;
-    while (m.length < 3)  m = "0" + m;
-    return "e1" + m; // exact name match
-  }
+    return "e1" + posToStr(i); // exact name match
 
   j = 0;
   m = "";
   for (i = 0; i < sFilter.length; ++i)
   {
-    c = sFilter.substr(i, 1);
+    c = sFilter.charAt(i);
     if (c !== " ") // ' ' matches any character
       j = fname.indexOf(c, j);
     if (j === -1)
@@ -2051,8 +2157,9 @@ function MatchFilter(sFilter, sFilePath)
       break;
     }
 
-    if (j > m.length)
-      m += createString("x", j - m.length);
+    k = j - m.length;
+    if (k > 0)
+      m += createString("x", k);
 
     m += "v";
     ++j;
@@ -2062,26 +2169,23 @@ function MatchFilter(sFilter, sFilePath)
 
   if (fname !== sFilePath)
   {
-    i = sFilePath.indexOf(sFilter);
+    i = sFilePath.indexOf(sFilter); // position in the sFilePath
     if (i !== -1)
-    {
-      m = "" + i;
-      while (m.length < 3)  m = "0" + m;
-      return "e2" + m; // exact pathname match
-    }
+      return "e2" + posToStr(i); // exact pathname match
 
     j = 0;
     m = "";
     for (i = 0; i < sFilter.length; ++i)
     {
-      c = sFilter.substr(i, 1);
+      c = sFilter.charAt(i);
       if (c !== " ") // ' ' matches any character
         j = sFilePath.indexOf(c, j);
       if (j === -1)
         return ""; // no match
 
-      if (j > m.length)
-        m += createString("x", j - m.length);
+      k = j - m.length;
+      if (k > 0)
+        m += createString("x", k);
 
       m += "v";
       ++j;
@@ -2095,7 +2199,7 @@ function MatchFilter(sFilter, sFilePath)
 function createString(c, N)
 {
   // N times repeats c
-  return new Array(N + 1).join(c);
+  return (N == 1) ? c : new Array(N + 1).join(c);
 }
 
 function LOWORD(nParam)
@@ -2256,15 +2360,15 @@ function getEnvVar(varName)
   return varValue;
 }
 
+function subst_replacer(matched_part, p1)
+{
+  // p1 is a substring found by the first parenthesized capture group
+  return getEnvVar(p1); // this replaces the matched_part
+}
+
 function substituteEnvVars(s)
 {
-  function replacer(matched_part, p1, offset, full_str)
-  {
-    // p1 is a substring found by the first parenthesized capture group
-    return getEnvVar(p1); // this replaces the matched_part
-  }
-
-  return s.replace(/%([^%]*)%/g, replacer);
+  return s.replace(/%([^%]*)%/g, subst_replacer);
 }
 
 function isStringInArray(str, arr, ignoreCase)
@@ -2292,8 +2396,7 @@ function strTrim(s)
 
 function getNthDepthPath(path, depth)
 {
-  var k1;
-  var k2;
+  var k1, k2;
   var k = path.length;
 
   for (;;)
@@ -2343,7 +2446,7 @@ function getRgbIntFromHex(sRgb)
   if (sRgb.length != 0)
   {
     var i = 0;
-    if (sRgb.substr(0, 1) === "#")
+    if (sRgb.charAt(0) === "#")
       i = 1;
     if (sRgb.length - i == 6)
     {
@@ -2376,10 +2479,15 @@ function isApplyingColorTheme()
 
 function showHelp()
 {
+  if (oState.isShowingHelp)
+    return;
+
+  oState.isShowingHelp = true;
   oState.isIgnoringEscKeyUp = true;
   //log.WriteLine("isIgnoringEscKeyUp = true");
   oSys.Call("user32::MessageBox" + _TCHAR, hWndScriptDlg, sScriptHelp, sScriptName + ": Help", MB_OK);
   oSys.Call("user32::SetFocus", hWndFilterEdit);
+  oState.isShowingHelp = false;
 }
 
 function getOpenedFiles()
@@ -2423,9 +2531,19 @@ function getFrameFileName(lpFrame)
   return AkelPad.MemRead(AkelPad.SendMessage(hWndMain, AKD_GETFRAMEINFO, FI_FILEW, lpFrame), DT_UNICODE);
 }
 
-function activateFrame(lpFrame)
+function make_identifier(a, b, c, d)
 {
-  AkelPad.SendMessage(hWndMain, AKD_FRAMEACTIVATE, 0, lpFrame);
+  return (a | (b << 8) | (c << 16) | (d << 24));
+}
+
+function compareAkelPadArchitecture(arch)
+{
+  return AkelPad.SendMessage(hWndMain, AKD_PROGRAMARCHITECTURE, 0, arch);
+}
+
+function activateFrame(lpFrame, nFlags)
+{
+  AkelPad.SendMessage(hWndMain, AKD_FRAMEACTIVATE, nFlags, lpFrame);
 }
 
 function destroyFrame(lpFrame)
@@ -2442,9 +2560,7 @@ function getFavFilePath()
 function getStartDir()
 {
   var result = new Object();
-  if (Options.StartDir != undefined &&
-      Options.StartDir !== "" &&
-      oFSO.FolderExists(Options.StartDir))
+  if (Options.StartDir && oFSO.FolderExists(Options.StartDir))
   {
     result.dir = Options.StartDir;
     result.fromCurrDir = false;
@@ -2544,13 +2660,10 @@ function getFilesInDir(dirPath, excludeFileExts, excludeDirs, maxDepth, totalFil
   var NoError = 0;
   var Error_TooManyFiles = -1;
   var subresult;
-  var s;
-  var sFullName;
+  var s, sFullName;
   var nAttr;
-  var i;
-  var j;
-  var nDirs;
-  var nSubDirs;
+  var i, j;
+  var nDirs, nSubDirs;
   var result = {
     files : [],
     code : NoError // OK
@@ -2710,6 +2823,11 @@ function getRecentFiles()
 
   oState.isRecentFilesLoaded = true;
   return recentFiles;
+}
+
+function ShowErr(errMsg)
+{
+  AkelPad.MessageBox(AkelPad.GetMainWnd(), errMsg, WScript.ScriptName, MB_OK|MB_ICONERROR);
 }
 
 function createEmptySettingsObject()
