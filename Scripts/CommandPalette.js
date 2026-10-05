@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.8.1
+// Version: 0.8.2
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -48,6 +48,7 @@ var Options = {
                             // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
                             // or specify "" to use the system's color (COLOR_HIGHLIGHT)
 
+  SpaceMatchesZeroCharacters : true, // "Cmd name" matches "Cmdname"
   apply_match_color : true, // true -> apply TextMatchColor to the matching parts
   apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
@@ -92,6 +93,7 @@ var LB_SETCURSEL       = 0x0186;
 var LB_GETCURSEL       = 0x0188;
 var LB_GETTEXT         = 0x0189;
 var LBN_DBLCLK         = 2;
+var EN_CHANGE          = 0x0300;
 var LVM_SETBKCOLOR     = 0x1001;
 var LVM_DELETEALLITEMS = 0x1009;
 var LVM_GETNEXTITEM    = 0x100C;
@@ -834,18 +836,28 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     else if (wParam == VK_RETURN)
     {
       ActionItem = CommandsList_GetCurSelItem(hWndCommandsList);
-      oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
+      if (ActionItem != undefined)
+        oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
     }
   }
 
   else if (uMsg == WM_COMMAND)
   {
-    if (HIWORD(wParam) == LBN_DBLCLK)
+    if (HIWORD(wParam) == EN_CHANGE)
+    {
+      if (LOWORD(wParam) == IDC_ED_FILTER && hWndCommandsList)
+      {
+        sCmdFilter = GetWindowText(hWndFilterEdit);
+        CommandsList_Fill(hWndCommandsList, sCmdFilter);
+      }
+    }
+    else if (HIWORD(wParam) == LBN_DBLCLK)
     {
       if (LOWORD(wParam) == IDC_LB_ITEMS)
       {
         ActionItem = CommandsList_GetCurSelItem(hWndCommandsList);
-        oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
+        if (ActionItem != undefined)
+          oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
       }
     }
   }
@@ -858,7 +870,8 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (code == NM_DBLCLK)
       {
         ActionItem = CommandsList_GetCurSelItem(hWndCommandsList);
-        oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
+        if (ActionItem != undefined)
+          oSys.Call("user32::PostMessage" + _TCHAR, hWnd, WM_CLOSE, 0, 0);
       }
     }
   }
@@ -1121,9 +1134,6 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
       else
         AkelPad.WindowNextProc(hSubclassFilterEdit, hWnd, uMsg, wParam, lParam);
 
-      sCmdFilter = GetWindowText(hWnd);
-      CommandsList_Fill(hWndCommandsList, sCmdFilter);
-
       AkelPad.WindowNoNextProc(hSubclassFilterEdit);
       return 0;
     }
@@ -1140,18 +1150,9 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
   {
     if ((wParam == 0x7F) && IsCtrlPressed()) // 0x7F is Ctrl+Backspace. Why? Ask M$
     {
-      // do nothing
+      AkelPad.WindowNoNextProc(hSubclassFilterEdit);
+      return 0;
     }
-    else
-    {
-      AkelPad.WindowNextProc(hSubclassFilterEdit, hWnd, uMsg, wParam, lParam);
-
-      sCmdFilter = GetWindowText(hWnd);
-      CommandsList_Fill(hWndCommandsList, sCmdFilter);
-    }
-
-    AkelPad.WindowNoNextProc(hSubclassFilterEdit);
-    return 0;
   }
 }
 
@@ -1282,8 +1283,11 @@ function MatchFilter(sFilter, sLine)
   for (i = 0; i < sFilter.length; ++i)
   {
     c = sFilter.charAt(i);
-    if (c != " ") // ' ' matches any character
+    if (c != " ") // ' ' matches any character or zero characters
       j = sLine.indexOf(c, j);
+    else if (Options.SpaceMatchesZeroCharacters)
+      continue;
+
     if (j == -1)
       return ""; // no match
 
@@ -1399,8 +1403,8 @@ function GetLvSelectedIndex(hLvWnd)
 function CommandsList_GetCurSelItem(hListWnd)
 {
   var n = Options.UseListView ? GetLvFocusedIndex(hListWnd) : AkelPad.SendMessage(hListWnd, LB_GETCURSEL, 0, 0);
-  if (n < 0)
-    n = 0;
+  if (n < 0 || n >= oMatches.length)
+    return undefined;
 
   nCmdIndex = n;
 
