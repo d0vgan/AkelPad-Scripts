@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.8.2
+// Version: 0.8.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -59,6 +59,16 @@ Favourites:
   4. Special character %a means AkelPad's root directory.
   5. Environment variables %var% are substituted.
 
+Script Arguments:
+
+  -pickWord=true   Picks either selected text or word under the caret
+                   and inserts it into the filter in a form of @text.
+                   Default value: see PickWordDefault.
+
+Example of a command in Hotkeys plugin:
+
+  Find Word  |  Call("Scripts::Main", 1, "GoToAnything.js", "-pickWord=true")  |  Alt+F12
+
 */
 
 //Options (static configuration)
@@ -112,6 +122,7 @@ var Options = {
                             // (e.g. "HighLight_LineBkColor" or "HighLight_SelBkColor");
                             // or specify "" to use the system's color (COLOR_HIGHLIGHT)
 
+  PickWordDefault : false, // default value of the pickWord argument
   apply_match_color : true, // true -> apply TextMatchColor to the matching parts
   apply_64bit_rare_fix : false // true -> fixes a rare problem with 64-bit AkelPad under Windows 11. Not needed since Scripts 19.6.
 };
@@ -215,6 +226,8 @@ var WM_CTLCOLOREDIT    = 0x0133;
 var WM_CTLCOLORLISTBOX = 0x0134;
 var WM_LBUTTONDOWN     = 0x0201;
 var WM_USER            = 0x0400;
+var WM_APP             = 0x8000;
+var GTM_ACTIVATE       = WM_APP + 1;
 var EM_GETSEL          = 0x00B0;
 var EM_SETSEL          = 0x00B1;
 var EM_LINESCROLL      = 0x00B6;
@@ -365,6 +378,10 @@ var fofMainExit = 0x10;
 //restoreInitialTab flags
 var rifNoRestorePos = 0x01; // do not restore selection and first visible line
 
+//setCurrentFilter/ApplyFilter flags
+var cffNotUpdateFilesList = 0x01;
+var cffNotFuzzy = 0x02;
+
 var IDX_ID      = 0;
 var IDX_CLASS   = 1;
 var IDX_HWND    = 2;
@@ -424,6 +441,7 @@ function createState()
   s.isFavouritesLoaded = false;
   s.isRecentFilesLoaded = false;
   s.isIgnoringEscKeyUp = false;
+  s.isApplyingEnChange = true;
   s.isShowingHelp = false;
   s.isAkdFrameMoveAvailable = (compareAkelPadArchitecture(make_identifier(2, 2, 12, 0)) >= 0);
   return s;
@@ -452,12 +470,7 @@ function memFree(lpBuf)
 
 if (hWndScriptDlg = oSys.Call("user32::FindWindowEx" + _TCHAR, 0, 0, sScriptClassName, 0))
 {
-  if (!oSys.Call("user32::IsWindowVisible", hWndScriptDlg))
-    oSys.Call("user32::ShowWindow", hWndScriptDlg, SW_SHOWNA);
-  if (oSys.Call("user32::IsIconic", hWndScriptDlg))
-    oSys.Call("user32::ShowWindow", hWndScriptDlg, SW_RESTORE);
-
-  oSys.Call("user32::SetForegroundWindow", hWndScriptDlg);
+  oSys.Call("user32::PostMessage" + _TCHAR, hWndScriptDlg, GTM_ACTIVATE, isPickWordEnabled() ? 1 : 0, 0);
 }
 else
 {
@@ -782,9 +795,49 @@ function executeActionItem()
   oSys.Call("user32::SetFocus", hWndMain);
 }
 
+function isPickWordEnabled()
+{
+  return AkelPad.GetArgValue("pickWord", Options.PickWordDefault);
+}
+
+function getCurrentWord()
+{
+  if (AkelPad.GetSelStart() == AkelPad.GetSelEnd())
+    return getWordCaret();
+
+  return AkelPad.GetSelText();
+}
+
+function setCurrentFilter(sCurrFilter, hFilterEdit, hFilesList, uFlags)
+{
+  oState.isApplyingEnChange = false;
+  SetWndText(hFilterEdit, sCurrFilter); // triggers EN_CHANGE
+  AkelPad.SendMessage(hFilterEdit, EM_SETSEL, 0, -1);
+  oState.isApplyingEnChange = true;
+  oState.sLastPartialFilter = undefined; // will be set by ApplyFilter
+  //WScript.Echo("setCurrentFilter - ApplyFilter");
+  ApplyFilter(hFilesList, sCurrFilter, 0, uFlags);
+}
+
 function DialogCallback(hWnd, uMsg, wParam, lParam)
 {
-  if (uMsg == WM_CREATE)
+  if (uMsg == GTM_ACTIVATE)
+  {
+    if (!oSys.Call("user32::IsWindowVisible", hWnd))
+      oSys.Call("user32::ShowWindow", hWnd, SW_SHOWNA);
+    if (oSys.Call("user32::IsIconic", hWnd))
+      oSys.Call("user32::ShowWindow", hWnd, SW_RESTORE);
+
+    if (wParam) // pickWord
+    {
+      setCurrentFilter(oState.sLastPartialFilter + Options.Char_GoToText1 + getCurrentWord(),
+        hWndFilterEdit, hWndFilesList, cffNotUpdateFilesList | cffNotFuzzy);
+    }
+
+    oSys.Call("user32::SetForegroundWindow", hWnd);
+  }
+
+  else if (uMsg == WM_CREATE)
   {
     var i;
     var W, H;
@@ -830,13 +883,12 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
     H = rectWnd.H - rectClient.H + rectLB.Y + rectLB.H + 3;
     ResizeWindow(hWnd, rectWnd.W, H);
 
-    if (Options.SaveLastFilter)
+    var pickWord = isPickWordEnabled();
+    if (Options.SaveLastFilter || pickWord)
     {
-      SetWndText(hWndFilterEdit, oState.sLastFullFilter);
-      AkelPad.SendMessage(hWndFilterEdit, EM_SETSEL, 0, -1);
-      oState.sLastPartialFilter = undefined;
-      ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0)
-      if (Options.AutoPreviewSelectedFile)
+      setCurrentFilter(pickWord ? oState.sLastPartialFilter + Options.Char_GoToText1 + getCurrentWord() : oState.sLastFullFilter,
+        hWndFilterEdit, hWndFilesList, pickWord ? cffNotFuzzy : 0);
+      if (Options.AutoPreviewSelectedFile && !pickWord)
       {
         FilesList_ActivateSelectedItem(hWndFilesList, 0);
       }
@@ -900,7 +952,11 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
       if (LOWORD(wParam) == IDC_ED_FILTER && hWndFilesList)
       {
         oState.sLastFullFilter = GetWndText(hWndFilterEdit);
-        ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0);
+        if (oState.isApplyingEnChange)
+        {
+          //WScript.Echo("EN_CHANGE - ApplyFilter");
+          ApplyFilter(hWndFilesList, oState.sLastFullFilter, 0);
+        }
       }
     }
     else if (HIWORD(wParam) == LBN_DBLCLK)
@@ -1287,10 +1343,8 @@ function FilterEditCallback(hWnd, uMsg, wParam, lParam)
     {
       if (!IsCtrlPressed())
       {
-        var nFindNext = 1;
-        if (IsShiftPressed())
-          nFindNext = -1;
-        ApplyFilter(hWndFilesList, oState.sLastFullFilter, nFindNext);
+        //WScript.Echo("VK_F3 - ApplyFilter");
+        ApplyFilter(hWndFilesList, oState.sLastFullFilter, IsShiftPressed() ? -1 : 1);
 
         AkelPad.WindowNoNextProc(hSubclassFilterEdit);
         return 0;
@@ -1551,13 +1605,16 @@ function FilesListCallback(hWnd, uMsg, wParam, lParam)
   */
 }
 
-function ApplyFilter(hListWnd, sFilter, nFindNext)
+function ApplyFilter(hListWnd, sFilter, nFindNext, uFlags)
 {
   var sFindWhat = "";
   var nLine = -1;
   var fromBeginning = false;
   var i;
   var c;
+
+  if (uFlags == undefined)
+    uFlags = 0;
 
   if (sFilter)
   {
@@ -1585,11 +1642,15 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
 
     sFilter = sFilter.toLowerCase();
   }
+  else if (sFilter == undefined)
+  {
+    sFilter = "";
+  }
 
   if (sFilter != oState.sLastPartialFilter)
   {
     oState.sLastPartialFilter = sFilter;
-    if (hListWnd != undefined)
+    if (hListWnd != undefined && !(uFlags & cffNotUpdateFilesList))
     {
       FilesList_Fill(hListWnd, sFilter);
     }
@@ -1613,7 +1674,8 @@ function ApplyFilter(hListWnd, sFilter, nFindNext)
       var nSelStart = AkelPad.GetSelStart();
       AkelPad.SetSel(nSelStart, nSelStart);
     }
-    if (Options.IsTextSearchFuzzy)
+    //WScript.Echo("ApplyFilter: uFlags=" + uFlags + ", sFindWhat=" + sFindWhat);
+    if (Options.IsTextSearchFuzzy && !(uFlags & cffNotFuzzy))
     {
       // The "heavy" fuzzy search:
       //   "abc" matches "abc", "axbzyc", "axyzbzxc" and so on
@@ -1986,6 +2048,7 @@ function apply_active_frame(lpFrm)
   oState.nActiveFrameSelStart = AkelPad.GetSelStart();
   oState.nActiveFrameSelEnd = AkelPad.GetSelEnd();
   oState.nActiveFirstVisibleLine = Edit_GetFirstVisibleLine(AkelPad.GetEditWnd());
+  //WScript.Echo("apply_active_frame - ApplyFilter");
   ApplyFilter(undefined, oState.sLastFullFilter, 0);
 }
 
@@ -2929,6 +2992,32 @@ function getRecentFiles()
 
   oState.isRecentFilesLoaded = true;
   return recentFiles;
+}
+
+// copied from "CaretSelect.js" by VladSh
+function getWordCaretInfo(hWndEdit) {
+  if (hWndEdit) {
+    var nCaretPos = AkelPad.GetSelStart();
+    var crInfo = [];
+    crInfo.min = AkelPad.SendMessage(hWndEdit, 1100 /*EM_FINDWORDBREAK */, 0/*WB_LEFT*/, nCaretPos);
+    crInfo.max = AkelPad.SendMessage(hWndEdit, 1100 /*EM_FINDWORDBREAK */, 7/*WB_RIGHTBREAK*/, crInfo.min);
+    //! For case when caret located on word start position i.e. "prev-word |word-to-copy"
+    if (crInfo.max < nCaretPos) {
+      crInfo.min = AkelPad.SendMessage(hWndEdit, 1100/*EM_FINDWORDBREAK*/, 0/*WB_LEFT*/, nCaretPos + 1);
+      crInfo.max = AkelPad.SendMessage(hWndEdit, 1100/*EM_FINDWORDBREAK*/, 7/*WB_RIGHTBREAK*/, crInfo.min);
+    }
+    if (crInfo.max >= nCaretPos)
+      return crInfo;
+  }
+}
+
+// copied from "CaretSelect.js" by VladSh
+function getWordCaret() {
+  var sResult = "";
+  var hWndEdit = AkelPad.GetEditWnd();
+  var crInfo = getWordCaretInfo(hWndEdit);
+  if (crInfo) sResult = AkelPad.GetTextRange(crInfo.min, crInfo.max);
+  return sResult;
 }
 
 function ShowErr(errMsg)
