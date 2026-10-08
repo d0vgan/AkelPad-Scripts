@@ -1,5 +1,5 @@
 // http://akelpad.sourceforge.net/forum/viewtopic.php?p=34456#34456
-// Version: 0.8.2
+// Version: 0.8.3
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Command Palette: AkelPad's and Plugins' commands ***
@@ -1428,7 +1428,7 @@ function CommandsList_SetCurSel(hListWnd, nItem)
   }
   else
   {
-      AkelPad.SendMessage(hListWnd, LB_SETCURSEL, nCmdIndex, 0);
+    AkelPad.SendMessage(hListWnd, LB_SETCURSEL, nItem, 0);
   }
 }
 
