@@ -246,7 +246,7 @@ var oMatches = []; // [0] = idx, [1] = match result, [2] = name
 var sScripName = "Command Palette";
 var IDC_ED_FILTER = 1011;
 var IDC_LB_ITEMS  = 1021;
-var IDC_LV_ITEMS  = 1021;
+var IDC_LV_ITEMS  = 1021; // the same as IDC_LB_ITEMS
 var IDX_ID      = 0;
 var IDX_CLASS   = 1;
 var IDX_HWND    = 2;
@@ -925,6 +925,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
   else if (uMsg == WM_MEASUREITEM)
   {
     var lpMIS = lParam; // LPMEASUREITEMSTRUCT lpMIS = (LPMEASUREITEMSTRUCT)lParam;
+    // Note: IDC_LV_ITEMS == IDC_LB_ITEMS
     if (AkelPad.MemRead(_PtrAdd(lpMIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpMIS->CtlID
     {
       var itemHeight = 20; // default
@@ -945,6 +946,7 @@ function DialogCallback(hWnd, uMsg, wParam, lParam)
   else if (uMsg == WM_DRAWITEM)
   {
     var lpDIS = lParam; // LPDRAWITEMSTRUCT lpdis = (LPDRAWITEMSTRUCT)lParam;
+    // Note: IDC_LV_ITEMS == IDC_LB_ITEMS
     if (AkelPad.MemRead(_PtrAdd(lpDIS, 4), DT_DWORD) == IDC_LB_ITEMS) // lpDIS->CtlID
     {
       var itemID = AkelPad.MemRead(_PtrAdd(lpDIS, 8), DT_DWORD); // lpDIS->itemID
