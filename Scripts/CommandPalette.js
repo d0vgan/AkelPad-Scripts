@@ -37,7 +37,7 @@ var Options = {
   CmdTotalMaxLength : 0, // 0 -> auto-calculated
   CmdTextMaxLengthListBox : 74, // note: it affects the window width
   WindowWidth  : 600, // width of the popup window
-  WindowHeight : 470, // height of the popup window
+  WindowHeight : 400, // height of the popup window
   TextMatchColor : 0x0040FF, // color of the matching parts of commands: 0xBBGGRR
   TextMatchColor_ThemeVar : "", // when ApplyColorTheme is true, use the given var's color (e.g. "TYPE");
                                 // or specify "" to use the TextMatchColor above
