@@ -526,7 +526,7 @@ function runScript()
   }
 
   var nDlgWidth  = 600;
-  var nDlgHeight = 530;
+  var nDlgHeight = 400;
   var nEditHeight = 20;
   var nEdY = 4;
   var nLbY = nEditHeight + (Options.ShowWindowTitle ? 6 : 8);
