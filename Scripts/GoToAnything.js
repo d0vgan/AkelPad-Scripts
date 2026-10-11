@@ -1,6 +1,6 @@
 // https://akelpad.sourceforge.net/forum/viewtopic.php?p=35541#35541
 // https://github.com/d0vgan/AkelPad-Scripts/blob/main/Scripts/GoToAnything.js
-// Version: 0.8.3
+// Version: 0.8.4
 // Author: Vitaliy Dovgan aka DV
 //
 // *** Go To Anything: Switch to file / go to line / find text ***
@@ -261,14 +261,19 @@ var LBS_OWNERDRAWFIXED = 0x0010;
 var LBS_USETABSTOPS    = 0x0080;
 var LBS_NODATA         = 0x2000;
 
-// Owner draw actions
+//Owner draw actions
 var ODA_DRAWENTIRE = 0x0001;
 var ODA_SELECT     = 0x0002;
 var ODA_FOCUS      = 0x0004;
 
-// Owner draw state
+//Owner draw state
 var ODS_SELECTED = 0x0001;
 var ODS_DEFAULT = 0x0020;
+
+//LangID
+var LANGID_FULL    = 0;
+var LANGID_PRIMARY = 1;
+var LANGID_SUB     = 2;
 
 //AkelPad Constants: AkelPad.MemRead
 var DT_ANSI = 0;
@@ -2723,7 +2728,9 @@ function destroyFrame(lpFrame)
 function getFavFilePath()
 {
   var sScriptFullPath = WScript.ScriptFullName;
-  return sScriptFullPath.substring(0, sScriptFullPath.lastIndexOf(".")) + ".fav";
+  var sScriptFullName = sScriptFullPath.substring(0, sScriptFullPath.lastIndexOf("."));
+  var sFavFileLngPath = sScriptFullName + "_" + AkelPad.GetLangId(LANGID_FULL).toString() + ".fav";
+  return oFSO.FileExists(sFavFileLngPath) ? sFavFileLngPath : sScriptFullName + ".fav";
 }
 
 function getStartDir()
