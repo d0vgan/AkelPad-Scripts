@@ -1,3 +1,11 @@
+// SettingsByFileExt.js
+//
+// Version: 0.1
+// Author: Vitaliy Dovgan aka DV
+//
+// *** SettingsByFileExt: apply different settings depending on file extension ***
+//
+
 var hWndMain = AkelPad.GetMainWnd();
 var oSys = AkelPad.SystemFunction();
 
@@ -12,7 +20,7 @@ if (hMutex = oSys.Call("kernel32::CreateMutex" + _TCHAR, 0, 1, mutexName))
 {
   if (oSys.GetLastError() == 183 /*ERROR_ALREADY_EXISTS*/)
   {
-    oSys.Call("kernel32::CloseHandle", hMutex);
+    oSys.Call("kernel32::CloseHandle", hMutex); // closes the just opened mutex
     oSys.Call("user32::PostMessage" + _TCHAR, hWndMain, AKD_JS_SCRIPT_STOP, UNIQUE_SCRIPT_ID, 0);
     WScript.Quit();
   }
@@ -39,6 +47,7 @@ function MainCallback(hWnd, uMsg, wParam, lParam)
   else if ((uMsg == 0x406 /*AKDN_MAIN_ONFINISH*/)
         || (uMsg == AKD_JS_SCRIPT_STOP && wParam == UNIQUE_SCRIPT_ID))
   {
+    oSys.Call("kernel32::CloseHandle", hMutex); // closes the previously created mutex
     oSys.Call("user32::PostQuitMessage", 0); // exit the message loop
   }
 
