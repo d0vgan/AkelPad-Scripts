@@ -1,6 +1,7 @@
 # AkelPad-Scripts
 Collection of scripts for AkelPad text editor
 
+**BackupOnSave.js** - Creates a .bak file when a document is saved (on AKDN_SAVEDOCUMENT_START).  
 **ClearUndo.js** - Clears the Undo buffer and frees the memory allocated for it.  
 **ColumnsReplace.js** - Replaces text in selected columns. Created by KDJ, updated by DV.  
 **CommandPalette.js** - Shows a list of AkelPad's and plugin's commands. Requires CommandPalette*.lng file.  
