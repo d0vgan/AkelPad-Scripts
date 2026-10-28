@@ -1,6 +1,6 @@
 // BackupOnSave.js
 //
-// Version: 0.1
+// Version: 0.1.1
 // Author: Vitaliy Dovgan aka DV
 //
 // *** BackupOnSave: create a .bak file on AKDN_SAVEDOCUMENT_START ***
@@ -26,7 +26,6 @@ if (hMutex = oSys.Call("kernel32::CreateMutex" + _TCHAR, 0, 1, mutexName))
   }
 }
 
-var msgtext;
 var hMainSubClass;
 if (hMainSubClass = AkelPad.WindowSubClass(1 /*WSC_MAINPROC*/, MainCallback))
 {
@@ -76,5 +75,7 @@ function BackupFile(filePath)
 
 function ShowMessage(text)
 {
-  AkelPad.MessageBox(hWndMain, text, "BackupOnSave", 0);
+  // Note: AkelPad.MessageBox with additional parameters avoids hanging!
+  AkelPad.MessageBox(hWndMain, text, "BackupOnSave", 0, 0,
+    1 /*IDOK*/, "&OK", 0x1 /*BMB_DEFAULT*/);
 }
