@@ -1,3 +1,14 @@
+// QSearchAutoFocus.js
+//
+// Version: 0.1
+// Author: Vitaliy Dovgan aka DV
+//
+// *** QSearchAutoFocus: sets the focus to QSearch when another file/tab is opened/activated ***
+//
+// Note: The QSearch plugin has its own option "Window: QSearch auto-focus (on file open)",
+// so this script is not really needed now.
+//
+
 var hWndMain = AkelPad.GetMainWnd();
 var oSys = AkelPad.SystemFunction();
 
@@ -13,7 +24,7 @@ if (hMutex = oSys.Call("kernel32::CreateMutex" + _TCHAR, 0, 1, mutexName))
 {
   if (oSys.GetLastError() == 183 /*ERROR_ALREADY_EXISTS*/)
   {
-    oSys.Call("kernel32::CloseHandle", hMutex);
+    oSys.Call("kernel32::CloseHandle", hMutex); // closes the just opened mutex
     oSys.Call("user32::PostMessage" + _TCHAR, hWndMain, AKD_JS_SCRIPT_STOP, UNIQUE_QS_ID, 0);
     WScript.Quit();
   }
@@ -48,6 +59,7 @@ function MainCallback(hWnd, uMsg, wParam, lParam)
   else if ((uMsg == 0x406 /*AKDN_MAIN_ONFINISH*/)
         || (uMsg == AKD_JS_SCRIPT_STOP && wParam == UNIQUE_QS_ID))
   {
+    oSys.Call("kernel32::CloseHandle", hMutex); // closes the previously created mutex
     oSys.Call("user32::PostQuitMessage", 0); // exit the message loop
   }
 
