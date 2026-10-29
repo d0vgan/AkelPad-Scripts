@@ -1,3 +1,15 @@
+// ConvertPathSlashes.js
+//
+// Version: 0.1
+// Author: Vitaliy Dovgan aka DV
+//
+// *** ConvertPathSlashes: converts '/' to '\', or vice versa ***
+//
+// Note: This functionality is already integrated into Converter.js by Infocatcher:
+// https://github.com/Infocatcher/AkelPad_scripts/blob/master/converter.js
+// so prefer Converter.js to ConvertPathSlashes.js.
+//
+
 var s = AkelPad.GetSelText();
 var i1 = s.indexOf("\\");
 var i2 = s.indexOf("/");
